@@ -1,10 +1,14 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 
 namespace Augment;
 
 public enum At { Head = 0, Return = 1, Overwrite = 2 }
+
+// pointer-to-member-function: { code pointer, this-adjustment }
+public struct Pmf { public nint Fn; public nint Adjust; }
 
 [StructLayout(LayoutKind.Sequential)]
 public unsafe struct AugmentCtx
@@ -58,6 +62,12 @@ public static unsafe class Mixin
 
     public static nint Resolve(string symbol) => augment_resolve(symbol);
 
+    [DllImport("augment", EntryPoint = "augment_field_offset")]
+    static extern int augment_field_offset([MarshalAs(UnmanagedType.LPUTF8Str)] string field);
+
+    static readonly ConcurrentDictionary<string, int> s_offsets = new();
+    public static int OffsetOf(string field) => s_offsets.GetOrAdd(field, augment_field_offset);
+
     public static void Register(string symbol, At at, CtxAction body,
                                 int priority = 0, string? tag = null, string? id = null)
     {
@@ -106,4 +116,17 @@ public unsafe struct Ctx
     public nint ArgPtr(int i) => (nint)_c->Args[i];
     public T    Ret<T>() where T : unmanaged => *(T*)_c->Ret;
     public void SetRet<T>(T v) where T : unmanaged { if (_c->Ret != null) *(T*)_c->Ret = v; }
+
+    public ref T As<T>() where T : unmanaged => ref *(T*)_c->Self;
+
+    public T GetField<T>(string field) where T : unmanaged {
+        int off = Mixin.OffsetOf(field);
+        if (off < 0) throw new ArgumentException($"unknown field '{field}'");
+        return *(T*)((byte*)_c->Self + off);
+    }
+    public void SetField<T>(string field, T v) where T : unmanaged {
+        int off = Mixin.OffsetOf(field);
+        if (off < 0) throw new ArgumentException($"unknown field '{field}'");
+        *(T*)((byte*)_c->Self + off) = v;
+    }
 }
