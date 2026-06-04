@@ -29,9 +29,9 @@ def main(argv: list[str]) -> int:
         for src in files.values():
             print(src, end="")
     else:
+        os.makedirs(a.output, exist_ok=True)
         for rel_path, src in files.items():
-            dest = os.path.join(a.output, rel_path) if os.path.isdir(a.output) else \
-                   (a.output if len(files) == 1 else os.path.join(a.output, rel_path))
+            dest = os.path.join(a.output, rel_path)
             os.makedirs(os.path.dirname(dest), exist_ok=True)
             with open(dest, "w") as f:
                 f.write(src)

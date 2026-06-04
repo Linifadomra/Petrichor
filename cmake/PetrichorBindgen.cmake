@@ -6,17 +6,12 @@
 #     LANGS     cs luau ...     # One or more emitter languages (default: cs)
 #     NAMESPACE <ns>            # Namespace / module root (default: Game)
 # )
-#
-# For each language, runs the bindgen tool and writes generated files into
-# OUT_DIR/<lang>/. Creates a <TARGET>_bindgen target and wires it as a
-# dependency of TARGET.
 # ---------------------------------------------------------------------------
 
 cmake_minimum_required(VERSION 3.20)
 
-find_package(Python3 REQUIRED COMPONENTS Interpreter)
-
 function(petrichor_bindgen)
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
     cmake_parse_arguments(
         PBG
         ""
@@ -50,35 +45,37 @@ function(petrichor_bindgen)
             "[petrichor_bindgen] petrichor_SOURCE_DIR is not set.\n"
             "Add petrichor via CPMAddPackage or add_subdirectory first.")
     endif()
-    set(_bindgen_dir "${petrichor_SOURCE_DIR}/tools/bindgen")
+    set(_bindgen_dir "${petrichor_SOURCE_DIR}/tools/")
 
-    set(_all_outputs)
+    if(NOT EXISTS "${_manifest}")
+        message(STATUS "[petrichor_bindgen] symbols.json not found yet, skipping (run augment codegen first)")
+        return()
+    endif()
 
     foreach(_lang ${PBG_LANGS})
         set(_out_dir "${PBG_OUT_DIR}/${_lang}")
-        set(_stamp "${CMAKE_CURRENT_BINARY_DIR}/${PBG_TARGET}_bindgen_${_lang}.stamp")
+        message(STATUS "[Petrichor] Generating ${_lang} bindings -> ${_out_dir}")
 
-        add_custom_command(
-            OUTPUT  "${_stamp}"
+        execute_process(
             COMMAND "${Python3_EXECUTABLE}" -m bindgen
                     "--input=${_manifest}"
                     "--lang=${_lang}"
                     "--namespace=${PBG_NAMESPACE}"
                     "--output=${_out_dir}"
-            COMMAND "${CMAKE_COMMAND}" -E touch "${_stamp}"
-            DEPENDS "${_manifest}"
             WORKING_DIRECTORY "${_bindgen_dir}"
-            COMMENT "[Petrichor] Generating ${_lang} bindings for ${PBG_TARGET}..."
-            VERBATIM
+            RESULT_VARIABLE _result
+            OUTPUT_VARIABLE _out
+            ERROR_VARIABLE  _err
         )
 
-        list(APPEND _all_outputs "${_stamp}")
+        if(NOT _result EQUAL 0)
+            message(FATAL_ERROR "[petrichor_bindgen] bindgen failed for lang '${_lang}':\nstdout: ${_out}\nstderr: ${_err}")
+        endif()
 
-        message(STATUS
-            "[Petrichor] Bindgen: ${PBG_TARGET} -> ${_lang} -> ${_out_dir}")
     endforeach()
 
-    set(_bindgen_target "${PBG_TARGET}_bindgen")
-    add_custom_target(${_bindgen_target} DEPENDS ${_all_outputs})
-    add_dependencies(${PBG_TARGET} ${_bindgen_target})
+    # Reconfigure if symbols.json changes so bindings stay in sync
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_manifest}")
+
+    message(STATUS "[Petrichor] Bindgen done for '${PBG_TARGET}'")
 endfunction()
