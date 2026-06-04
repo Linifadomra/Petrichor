@@ -1,6 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
 project(petrichor LANGUAGES CXX)
-
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -10,9 +9,7 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/PetrichorBindgen.cmake)
 
 add_library(petrichor STATIC
     src/loader.cpp
-    src/clr_host.cpp
     src/platform.cpp
-    src/backends/clr_backend.cpp
     src/backends/native_backend.cpp
 )
 
@@ -22,11 +19,18 @@ target_include_directories(petrichor
 )
 
 if(PETRICHOR_DOTNET_HOST_DIR)
+    target_sources(petrichor PRIVATE
+        src/clr_host.cpp
+        src/backends/clr_backend.cpp
+    )
     target_include_directories(petrichor PRIVATE ${PETRICHOR_DOTNET_HOST_DIR})
     find_library(PETRICHOR_NETHOST nethost PATHS ${PETRICHOR_DOTNET_HOST_DIR} NO_DEFAULT_PATH)
+    target_compile_definitions(petrichor PUBLIC PETRICHOR_DOTNET=1)
     if(PETRICHOR_NETHOST)
         target_link_libraries(petrichor PRIVATE ${PETRICHOR_NETHOST})
     endif()
+else()
+    message(STATUS "[Petrichor] PETRICHOR_DOTNET_HOST_DIR not set. CLR backend disabled.")
 endif()
 
 if(NOT WIN32)
