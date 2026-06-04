@@ -87,11 +87,11 @@ bool clr_boot(const PetrichorHost* host) {
 
 bool clr_loadMod(const char* dir, const char* id, const char* type, const char* entry) {
     if (!s_load) return false;
-    auto wdir = plat::to_fxr(dir).c_str();
-    auto wid  = plat::to_fxr(id).c_str();
-    auto wtype = plat::to_fxr(type).c_str();
-    auto wentry = plat::to_fxr(entry).c_str();
-    return s_load(wdir, wid, wtype, wentry) == 0;
+    auto wdir   = plat::to_fxr(dir);
+    auto wid    = plat::to_fxr(id);
+    auto wtype  = plat::to_fxr(type);
+    auto wentry = plat::to_fxr(entry ? entry : "");
+    return s_load(wdir.c_str(), wid.c_str(), wtype.c_str(), wentry.c_str()) == 0;
 }
 
 void clr_stop() {
