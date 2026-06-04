@@ -104,4 +104,6 @@ public unsafe struct Ctx
     public T    Arg<T>(int i) where T : unmanaged => *(T*)_c->Args[i];
     public void SetArg<T>(int i, T v) where T : unmanaged => *(T*)_c->Args[i] = v;
     public nint ArgPtr(int i) => (nint)_c->Args[i];
+    public T    Ret<T>() where T : unmanaged => *(T*)_c->Ret;
+    public void SetRet<T>(T v) where T : unmanaged { if (_c->Ret != null) *(T*)_c->Ret = v; }
 }
