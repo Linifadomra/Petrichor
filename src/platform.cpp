@@ -10,6 +10,7 @@
 #else
 #include <dlfcn.h>
 #endif
+
 #if defined(__APPLE__)
 #include <mach-o/dyld.h>
 #elif defined(__linux__)
@@ -33,7 +34,12 @@ void plog(const char* tag, const char* fmt, ...) {
 namespace plat {
 
 #if defined(_WIN32)
-void* dynOpen(const char* path) { return (void*)LoadLibraryA(path); }
+void* dynOpen(const char* path) { 
+    int len = MultiByteToWideChar(CP_UTF8, 0, path, -1, nullptr, 0);
+    std::wstring wpath(len, 0);
+    MultiByteToWideChar(CP_UTF8, 0, path, -1, wpath.data(), len);
+    return (void*)LoadLibraryW(wpath.c_str());
+}
 void* dynSym(void* h, const char* name) { return (void*)GetProcAddress((HMODULE)h, name); }
 void  dynClose(void* h) { FreeLibrary((HMODULE)h); }
 const char* dynError() { return ""; }
@@ -44,25 +50,60 @@ void  dynClose(void* h) { dlclose(h); }
 const char* dynError() { const char* e = dlerror(); return e ? e : ""; }
 #endif
 
-const char* exeDir() {
-    static std::string dir;
-    if (!dir.empty()) return dir.c_str();
+std::string wide_to_utf8(const std::wstring& w) {
+#if defined(_WIN32)
+    if (w.empty()) return {};
 
-    char path[4096];
-#if defined(__APPLE__)
-    uint32_t n = sizeof(path);
-    if (_NSGetExecutablePath(path, &n) != 0) return "";
-#elif defined(_WIN32)
-    if (GetModuleFileNameA(nullptr, path, sizeof(path)) == 0) return "";
+    int size = WideCharToMultiByte(CP_UTF8, 0, w.data(), (int)w.size(), nullptr, 0, nullptr, nullptr);
+    std::string out(size, 0);
+    WideCharToMultiByte(CP_UTF8, 0, w.data(), (int)w.size(), out.data(), size, nullptr, nullptr);
+    return out;
 #else
-    ssize_t n = readlink("/proc/self/exe", path, sizeof(path) - 1);
-    if (n <= 0) return "";
-    path[n] = '\0';
+    return std::string(w.begin(), w.end());
 #endif
-    std::string p(path);
-    size_t slash = p.find_last_of("/\\");
-    dir = (slash == std::string::npos) ? "" : p.substr(0, slash + 1);
-    return dir.c_str();
+}
+
+std::basic_string<fxr_char> to_fxr(const std::string& s) {
+#if defined(_WIN32)
+    return std::wstring(s.begin(), s.end());
+#else
+    return s;
+#endif
+};
+
+const std::string& exeDir() {
+    static std::string dir;
+    if (!dir.empty()) return dir;
+
+
+#if defined(_WIN32)
+    wchar_t path[4096];
+    if (GetModuleFileNameW(nullptr, path, 4096) == 0) return dir;
+
+    std::wstring w(path);
+    dir = wide_to_utf8(w);
+#elif defined(__APPLE__)
+    char path[4096];
+    uint32_t n = sizeof(path);
+    if (_NSGetExecutablePath(path, &n) != 0) 
+        return dir;  
+
+    dir = path;
+#elif defined(__linux__)
+    char path[4096];
+    ssize_t n = readlink("/proc/self/exe", path, sizeof(path) - 1);
+    if (n <= 0) 
+        return dir;
+
+    path[n] = '\0';
+    dir = path;
+#endif
+
+    size_t slash = dir.find_last_of("/\\");
+    if (slash != std::string::npos)
+        dir = dir.substr(0, slash + 1);
+
+    return dir;
 }
 
 } // namespace plat
