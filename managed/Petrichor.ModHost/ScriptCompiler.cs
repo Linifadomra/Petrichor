@@ -17,9 +17,10 @@ static class ScriptCompiler
             if (p.Length > 0 && seen.Add(p))
                 refs.Add(MetadataReference.CreateFromFile(p));
 
-        var sdk = typeof(Mod).Assembly.Location;
-        if (seen.Add(sdk))
-            refs.Add(MetadataReference.CreateFromFile(sdk));
+        var sdkDir = Path.GetDirectoryName(typeof(Mod).Assembly.Location)!;
+        foreach (var dll in Directory.GetFiles(sdkDir, "*ModSdk*.dll"))
+            if (seen.Add(dll))
+                refs.Add(MetadataReference.CreateFromFile(dll));
 
         var compilation = CSharpCompilation.Create(asmName, trees, refs,
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, allowUnsafe: true));

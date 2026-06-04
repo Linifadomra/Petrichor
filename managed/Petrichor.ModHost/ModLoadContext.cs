@@ -9,5 +9,10 @@ sealed class ModLoadContext : AssemblyLoadContext
     public ModLoadContext(string name) : base(name, isCollectible: true) { }
 
     protected override Assembly? Load(AssemblyName name)
-        => name.Name == "Petrichor.ModSdk" ? typeof(Mod).Assembly : null;
+    {
+        if (name.Name == "Petrichor.ModSdk") return typeof(Mod).Assembly;
+        string dir = Path.GetDirectoryName(typeof(Mod).Assembly.Location)!;
+        string path = Path.Combine(dir, name.Name + ".dll");
+        return File.Exists(path) ? LoadFromAssemblyPath(path) : null;
+    }
 }
