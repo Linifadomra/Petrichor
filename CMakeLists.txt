@@ -6,6 +6,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(PETRICHOR_DOTNET_HOST_DIR "" CACHE PATH "Directory containing nethost.h / hostfxr.h / libnethost")
 
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/PetrichorBindgen.cmake)
+
 add_library(petrichor STATIC
     src/loader.cpp
     src/clr_host.cpp

@@ -1,3 +1,4 @@
+# flake8: noqa: E501
 #!/usr/bin/env python3
 import argparse
 import json
@@ -22,24 +23,16 @@ def main(argv: list[str]) -> int:
         data = json.load(f)
     symbols = [Sym.from_dict(s) for s in data.get("symbols", [])]
 
-    result = emitter.generate(symbols, a.namespace)
-
-    # single-file emitters return str; multi-file emitters return {path: src}
-    if isinstance(result, str):
-        files = {emitter.file_name: result}
-    else:
-        files = result
+    files = emitter.generate(symbols, a.namespace)
 
     if a.output is None:
         for src in files.values():
             print(src, end="")
     else:
         for rel_path, src in files.items():
-            if len(files) == 1 and not os.path.isdir(a.output):
-                dest = a.output
-            else:
-                dest = os.path.join(a.output, rel_path)
-                os.makedirs(os.path.dirname(dest), exist_ok=True)
+            dest = os.path.join(a.output, rel_path) if os.path.isdir(a.output) else \
+                   (a.output if len(files) == 1 else os.path.join(a.output, rel_path))
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
             with open(dest, "w") as f:
                 f.write(src)
             print(f"wrote {dest}", file=sys.stderr)
