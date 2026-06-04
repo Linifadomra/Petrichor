@@ -1,6 +1,15 @@
 #pragma once
 #include "petrichor/petrichor.h"
 #include "petrichor/backend.h"
+#include <string>
+
+#ifdef _WIN32
+using fxr_char = wchar_t;
+#define FXR_TEXT(x) L##x
+#else
+using fxr_char = char;
+#define FXR_TEXT(x) x
+#endif
 
 namespace petrichor {
 
@@ -14,7 +23,10 @@ void*       dynOpen(const char* path);
 void*       dynSym(void* handle, const char* name);
 void        dynClose(void* handle);
 const char* dynError();
-const char* exeDir();   // directory of the running executable, trailing slash
+const std::string& exeDir();   // directory of the running executable, trailing slash
+
+std::string wide_to_utf8(const std::wstring& w);
+std::basic_string<fxr_char> to_fxr(const std::string& s);
 }
 
 // CLR host (clr_host.cpp)
