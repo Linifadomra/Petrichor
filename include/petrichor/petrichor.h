@@ -5,7 +5,7 @@
 extern "C" {
 #endif
 
-#define PETRICHOR_API_VERSION 1
+#define PETRICHOR_API_VERSION 2
 
 // Frame/scene events the host fires; the managed host subscribes to these.
 typedef struct PetrichorEvents {
@@ -17,7 +17,7 @@ typedef struct PetrichorEvents {
 // Hook context handed to a mixin callback.
 typedef struct PetrichorMixinCtx {
     void*   self;
-    int32_t ret;
+    void*   ret;
     uint8_t cancelled;
     void*   user;
     void**  args;     // hooked call's argument slots; args[i] points to arg i
@@ -33,6 +33,28 @@ typedef struct PetrichorMixinApi {
     const char* (*inspect)(const char* sym);
 } PetrichorMixinApi;
 
+typedef struct PetrichorArg     { const char* name; const char* kind; const char* view; } PetrichorArg;
+typedef struct PetrichorField   { const char* name; unsigned offset; const char* kind; int len; const char* view; } PetrichorField;
+typedef struct PetrichorEnumVal { const char* name; long long value; } PetrichorEnumVal;
+
+typedef struct PetrichorReflectApi {
+    int         (*fn_count)(const char* flat);
+    const char* (*fn_mangled)(const char* flat, int i);
+    const char* (*fn_loc)(const char* flat, int i);
+    const char* (*resolve_at)(const char* flat, const char* file);
+    const char* (*resolve_sig)(const char* flat, const char* sig);
+    int         (*fn_params)(const char* mangled, const PetrichorArg** out);
+    const char* (*fn_self_view)(const char* mangled);
+    const char* (*fn_ret)(const char* mangled);
+    int         (*struct_fields)(const char* name, const PetrichorField** out);
+    int         (*enum_values)(const char* name, const PetrichorEnumVal** out);
+    int         (*global_addr)(const char* name, const char** kind, void** addr);
+    void        (*mem_read)(void* base, int off, const char* kind, void* out);
+    void        (*mem_write)(void* base, int off, const char* kind, const void* in);
+    int         (*mem_read_str)(void* base, int off, int cap, char* out);
+    void        (*mem_write_str)(void* base, int off, int cap, const char* s);
+} PetrichorReflectApi;
+
 // Everything petrichor needs from the host. The game fills this and calls
 // petrichor_run. petrichor never reads `game_api` -- it forwards it to mods,
 // which are the only code that knows its real type.
@@ -43,6 +65,7 @@ typedef struct PetrichorHost {
     void*       (*alloc)(uint32_t size);
     void        (*subscribe_events)(const PetrichorEvents* ev);
     const PetrichorMixinApi* mixin;
+    const PetrichorReflectApi* reflect;
     void*       (*resolve)(const char* name);           // symbol/service lookup
     void        (*call)(const char* sym, void** args, uint32_t nargs);  // invoke a game fn
     void*       game_api;                               // opaque to petrichor

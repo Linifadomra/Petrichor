@@ -1,4 +1,5 @@
 #include "internal.hpp"
+#include "hook_runtime.inc"
 
 #include <lua.h>
 #include <lualib.h>
@@ -19,8 +20,8 @@ namespace {
 const PetrichorHost* s_host = nullptr;
 lua_State* s_L = nullptr;
 
-// Argument slots of the hook currently executing (set around each callback).
 void** s_cur_args = nullptr;
+void*  s_cur_ret  = nullptr;
 
 // Read/write a single ffi-kind value at p.
 void mem_push(lua_State* L, const char* kind, void* p) {
@@ -81,11 +82,10 @@ int l_mixin_register(lua_State* L) {
         int ref2 = (int)(intptr_t)modctx;
         lua_rawgeti(L2, LUA_REGISTRYINDEX, ref2);
 
-        // Push ctx table
         lua_newtable(L2);
         lua_pushlightuserdata(L2, ctx->self);
         lua_setfield(L2, -2, "self");
-        lua_pushinteger(L2, ctx->ret);
+        lua_pushlightuserdata(L2, ctx->ret);
         lua_setfield(L2, -2, "ret");
         lua_pushboolean(L2, ctx->cancelled);
         lua_setfield(L2, -2, "cancelled");
@@ -244,7 +244,7 @@ int l_builder_register(lua_State* L) {
             lua_newtable(L2);
             lua_pushlightuserdata(L2, ctx->self);
             lua_setfield(L2, -2, "self");
-            lua_pushinteger(L2, ctx->ret);
+            lua_pushlightuserdata(L2, ctx->ret);
             lua_setfield(L2, -2, "ret");
             lua_pushboolean(L2, ctx->cancelled);
             lua_setfield(L2, -2, "cancelled");
@@ -292,6 +292,172 @@ int l_mixin_builder(lua_State* L) {
 }
 
 // ---------------------------------------------------------------------------
+// Augment._native reflect + hook primitives
+// ---------------------------------------------------------------------------
+
+const PetrichorReflectApi* RX() { return s_host ? s_host->reflect : nullptr; }
+
+int l_n_fn_count(lua_State* L) {
+    lua_pushinteger(L, RX() ? RX()->fn_count(luaL_checkstring(L, 1)) : 0);
+    return 1;
+}
+
+int l_n_fn_mangled(lua_State* L) {
+    const char* m = RX() ? RX()->fn_mangled(luaL_checkstring(L, 1), (int)luaL_checkinteger(L, 2)) : nullptr;
+    if (m) lua_pushstring(L, m); else lua_pushnil(L);
+    return 1;
+}
+
+int l_n_fn_loc(lua_State* L) {
+    const char* s = RX() ? RX()->fn_loc(luaL_checkstring(L, 1), (int)luaL_checkinteger(L, 2)) : "";
+    lua_pushstring(L, s ? s : "");
+    return 1;
+}
+
+int l_n_resolve_at(lua_State* L) {
+    const char* m = RX() ? RX()->resolve_at(luaL_checkstring(L, 1), luaL_checkstring(L, 2)) : nullptr;
+    if (m) lua_pushstring(L, m); else lua_pushnil(L);
+    return 1;
+}
+
+int l_n_resolve_sig(lua_State* L) {
+    const char* m = RX() ? RX()->resolve_sig(luaL_checkstring(L, 1), luaL_checkstring(L, 2)) : nullptr;
+    if (m) lua_pushstring(L, m); else lua_pushnil(L);
+    return 1;
+}
+
+int l_n_self_view(lua_State* L) {
+    const char* s = RX() ? RX()->fn_self_view(luaL_checkstring(L, 1)) : "";
+    lua_pushstring(L, s ? s : "");
+    return 1;
+}
+
+int l_n_ret(lua_State* L) {
+    const char* s = RX() ? RX()->fn_ret(luaL_checkstring(L, 1)) : "void";
+    lua_pushstring(L, s ? s : "void");
+    return 1;
+}
+
+int l_n_params(lua_State* L) {
+    const PetrichorArg* a = nullptr;
+    int n = RX() ? RX()->fn_params(luaL_checkstring(L, 1), &a) : 0;
+    lua_createtable(L, n, 0);
+    for (int i = 0; i < n; i++) {
+        lua_createtable(L, 0, 3);
+        lua_pushstring(L, a[i].name ? a[i].name : ""); lua_setfield(L, -2, "name");
+        lua_pushstring(L, a[i].kind);                  lua_setfield(L, -2, "kind");
+        lua_pushstring(L, a[i].view ? a[i].view : ""); lua_setfield(L, -2, "view");
+        lua_rawseti(L, -2, i + 1);
+    }
+    return 1;
+}
+
+int l_n_fields(lua_State* L) {
+    const PetrichorField* f = nullptr;
+    int n = RX() ? RX()->struct_fields(luaL_checkstring(L, 1), &f) : 0;
+    lua_createtable(L, n, 0);
+    for (int i = 0; i < n; i++) {
+        lua_createtable(L, 0, 5);
+        lua_pushstring(L, f[i].name);                  lua_setfield(L, -2, "name");
+        lua_pushinteger(L, (int)f[i].offset);          lua_setfield(L, -2, "offset");
+        lua_pushstring(L, f[i].kind);                  lua_setfield(L, -2, "kind");
+        lua_pushinteger(L, f[i].len);                  lua_setfield(L, -2, "len");
+        lua_pushstring(L, f[i].view ? f[i].view : ""); lua_setfield(L, -2, "view");
+        lua_rawseti(L, -2, i + 1);
+    }
+    return 1;
+}
+
+int l_n_enum_values(lua_State* L) {
+    const PetrichorEnumVal* v = nullptr;
+    int n = RX() ? RX()->enum_values(luaL_checkstring(L, 1), &v) : 0;
+    lua_createtable(L, 0, n);
+    for (int i = 0; i < n; i++) {
+        lua_pushinteger(L, (lua_Integer)v[i].value);
+        lua_setfield(L, -2, v[i].name);
+    }
+    return 1;
+}
+
+int l_n_argptr(lua_State* L) {
+    int i = (int)luaL_checkinteger(L, 1);
+    if (!s_cur_args) luaL_error(L, "argptr called outside a hook");
+    lua_pushlightuserdata(L, s_cur_args[i]);
+    return 1;
+}
+
+int l_n_register(lua_State* L) {
+    const char* mangled = luaL_checkstring(L, 1);
+    const char* phase   = luaL_checkstring(L, 2);
+    luaL_checktype(L, 3, LUA_TFUNCTION);
+    int ref = lua_ref(L, 3);
+
+    auto cb = [](PetrichorMixinCtx* ctx, void* modctx) {
+        lua_State* L2 = s_L;
+        lua_rawgeti(L2, LUA_REGISTRYINDEX, (int)(intptr_t)modctx);
+        lua_newtable(L2);
+        lua_pushlightuserdata(L2, ctx->self);  lua_setfield(L2, -2, "self");
+        lua_pushlightuserdata(L2, ctx->ret);   lua_setfield(L2, -2, "ret");
+        lua_pushboolean(L2, ctx->cancelled);   lua_setfield(L2, -2, "cancelled");
+        void** sa = s_cur_args; void* sr = s_cur_ret;
+        s_cur_args = ctx->args; s_cur_ret = ctx->ret;
+        if (lua_pcall(L2, 1, 1, 0) != LUA_OK) {
+            const char* err = lua_tostring(L2, -1);
+            s_host->log("luau", err ? err : "hook error");
+            lua_pop(L2, 1);
+        } else {
+            ctx->cancelled = (uint8_t)lua_toboolean(L2, -1);
+            lua_pop(L2, 1);
+        }
+        s_cur_args = sa; s_cur_ret = sr;
+    };
+
+    if (!s_host || !s_host->mixin) { lua_pushboolean(L, 0); return 1; }
+    void* mc = (void*)(intptr_t)ref;
+    uint8_t ok = 0;
+    if      (!strcmp(phase, "before"))  ok = s_host->mixin->before (mangled, cb, mc, 0, nullptr);
+    else if (!strcmp(phase, "after"))   ok = s_host->mixin->after  (mangled, cb, mc, 0, nullptr);
+    else if (!strcmp(phase, "replace")) ok = s_host->mixin->replace(mangled, cb, mc, 0, nullptr);
+    else luaL_error(L, "unknown phase '%s'", phase);
+    lua_pushboolean(L, ok);
+    return 1;
+}
+
+int l_require_hook(lua_State* L) {
+    size_t bc = 0;
+    char* code = luau_compile(PETRICHOR_HOOK_RUNTIME, strlen(PETRICHOR_HOOK_RUNTIME), nullptr, &bc);
+    int rc = luau_load(L, "Augment.Hook", code, bc, 0);
+    free(code);
+    if (rc != LUA_OK) luaL_error(L, "Augment.Hook compile: %s", lua_tostring(L, -1));
+    if (lua_pcall(L, 0, 1, 0) != LUA_OK) luaL_error(L, "Augment.Hook load: %s", lua_tostring(L, -1));
+    return 1;
+}
+
+int l_require_native(lua_State* L) {
+    lua_newtable(L);
+    auto set = [&](const char* k, lua_CFunction f) { lua_pushcfunction(L, f, k); lua_setfield(L, -2, k); };
+    set("fnCount",    l_n_fn_count);
+    set("fnMangled",  l_n_fn_mangled);
+    set("fnLoc",      l_n_fn_loc);
+    set("resolveAt",  l_n_resolve_at);
+    set("resolveSig", l_n_resolve_sig);
+    set("params",     l_n_params);
+    set("selfView",   l_n_self_view);
+    set("retKind",    l_n_ret);
+    set("fields",     l_n_fields);
+    set("enumValues", l_n_enum_values);
+    set("read",       l_mem_read);
+    set("write",      l_mem_write);
+    set("readStr",    l_mem_read_str);
+    set("writeStr",   l_mem_write_str);
+    set("arg",        l_mixin_arg);
+    set("setArg",     l_mixin_set_arg);
+    set("argptr",     l_n_argptr);
+    set("register",   l_n_register);
+    return 1;
+}
+
+// ---------------------------------------------------------------------------
 // Module loader  (require("Augment.Mixin") etc.)
 // ---------------------------------------------------------------------------
 int l_require_mixin(lua_State* L) {
@@ -335,7 +501,11 @@ int l_require(lua_State* L) {
     if (!lua_isnil(L, -1)) return 1;
     lua_pop(L, 1);
 
-    if (strcmp(name, "Augment.Mixin") == 0) {
+    if (strcmp(name, "Augment._native") == 0) {
+        l_require_native(L);
+    } else if (strcmp(name, "Augment.Hook") == 0) {
+        l_require_hook(L);
+    } else if (strcmp(name, "Augment.Mixin") == 0) {
         l_require_mixin(L);
     } else if (strcmp(name, "Petrichor.Log") == 0) {
         l_require_log(L);

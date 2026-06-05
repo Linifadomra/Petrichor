@@ -3,8 +3,6 @@ project(petrichor LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/PetrichorBindgen.cmake)
-
 add_library(petrichor STATIC
     src/loader.cpp
     src/platform.cpp
@@ -32,3 +30,9 @@ endif()
 # Managed projects (Petrichor.ModHost / Petrichor.ModSdk) for the consumer to publish + deploy.
 set(PETRICHOR_MODHOST_CSPROJ ${CMAKE_CURRENT_SOURCE_DIR}/managed/Petrichor.ModHost/Petrichor.ModHost.csproj CACHE INTERNAL "")
 set(PETRICHOR_MODSDK_CSPROJ  ${CMAKE_CURRENT_SOURCE_DIR}/managed/Petrichor.ModSdk/Petrichor.ModSdk.csproj   CACHE INTERNAL "")
+
+option(PETRICHOR_TESTS "Build petrichor tests" OFF)
+if(PETRICHOR_TESTS)
+    enable_testing()
+    add_subdirectory(tests)
+endif()
