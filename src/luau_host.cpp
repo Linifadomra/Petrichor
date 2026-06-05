@@ -156,6 +156,27 @@ int l_mem_write(lua_State* L) {
     return 0;
 }
 
+int l_mem_read_str(lua_State* L) {
+    const char* p = (const char*)lua_tolightuserdata(L, 1) + luaL_checkinteger(L, 2);
+    int len = (int)luaL_checkinteger(L, 3);
+    int n = 0;
+    while (n < len && p[n]) n++;
+    lua_pushlstring(L, p, n);
+    return 1;
+}
+
+int l_mem_write_str(lua_State* L) {
+    char* p = (char*)lua_tolightuserdata(L, 1) + luaL_checkinteger(L, 2);
+    int len = (int)luaL_checkinteger(L, 3);
+    size_t slen = 0;
+    const char* s = luaL_checklstring(L, 4, &slen);
+    int n = (int)slen;
+    if (n > len - 1) n = len - 1;
+    for (int i = 0; i < n; i++) p[i] = s[i];
+    p[n] = 0;
+    return 0;
+}
+
 // Mixin.arg(i, kind) -> the i-th argument of the hook currently running
 int l_mixin_arg(lua_State* L) {
     int i = (int)luaL_checkinteger(L, 1);
@@ -280,6 +301,8 @@ int l_require_mixin(lua_State* L) {
     lua_pushcfunction(L, l_mixin_call,     "call");     lua_setfield(L, -2, "call");
     lua_pushcfunction(L, l_mem_read,       "read");     lua_setfield(L, -2, "read");
     lua_pushcfunction(L, l_mem_write,      "write");    lua_setfield(L, -2, "write");
+    lua_pushcfunction(L, l_mem_read_str,   "read_str"); lua_setfield(L, -2, "read_str");
+    lua_pushcfunction(L, l_mem_write_str,  "write_str");lua_setfield(L, -2, "write_str");
     lua_pushcfunction(L, l_mixin_arg,      "arg");      lua_setfield(L, -2, "arg");
     lua_pushcfunction(L, l_mixin_set_arg,  "set_arg");  lua_setfield(L, -2, "set_arg");
     lua_pushcfunction(L, l_mixin_resolve,  "resolve");  lua_setfield(L, -2, "resolve");

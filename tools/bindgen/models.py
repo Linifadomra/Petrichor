@@ -54,10 +54,11 @@ class Field:
     name: str = ""
     offset: int = 0
     kind: str = ""
+    len: int = 0
 
     @staticmethod
     def from_dict(d: dict) -> "Field":
-        return Field(name=d.get("name", ""), offset=d.get("offset", 0), kind=d.get("kind", ""))
+        return Field(name=d.get("name", ""), offset=d.get("offset", 0), kind=d.get("kind", ""), len=d.get("len", 0))
 
 
 @dataclass

@@ -30,7 +30,8 @@ class LuauStructEmitter:
             if f.name in seen:
                 continue
             seen.add(f.name)
-            w(f'    ["{f.name}"] = {{ offset = {f.offset}, kind = "{f.kind}" }},')
+            extra = f", len = {f.len}" if f.kind == "str" else ""
+            w(f'    ["{f.name}"] = {{ offset = {f.offset}, kind = "{f.kind}"{extra} }},')
         w(f"}}")
         w(f"")
         w(f"function {s.name}.view(self)")
@@ -38,11 +39,13 @@ class LuauStructEmitter:
         w(f"        __index = function(_, k)")
         w(f"            local f = {s.name}.fields[k]")
         w(f"            if not f then error(\"{s.name} has no field '\" .. tostring(k) .. \"'\", 2) end")
+        w(f"            if f.kind == \"str\" then return Mixin.read_str(self, f.offset, f.len) end")
         w(f"            return Mixin.read(self, f.offset, f.kind)")
         w(f"        end,")
         w(f"        __newindex = function(_, k, v)")
         w(f"            local f = {s.name}.fields[k]")
         w(f"            if not f then error(\"{s.name} has no field '\" .. tostring(k) .. \"'\", 2) end")
+        w(f"            if f.kind == \"str\" then Mixin.write_str(self, f.offset, f.len, v) return end")
         w(f"            Mixin.write(self, f.offset, f.kind, v)")
         w(f"        end,")
         w(f"    }})")

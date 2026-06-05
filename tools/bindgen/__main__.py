@@ -6,7 +6,7 @@ import os
 import sys
 
 from .models import Sym, StructDef
-from .emitters import EMITTERS, STRUCT_EMITTERS
+from .emitters import EMITTERS, STRUCT_EMITTERS, HOOK_EMITTERS
 
 
 def main(argv: list[str]) -> int:
@@ -15,15 +15,29 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--output",    default=None)
     parser.add_argument("--lang",      default="luau", choices=EMITTERS.keys())
     parser.add_argument("--namespace", default="Game")
+    parser.add_argument("--kind",      default="auto", choices=["auto", "structs", "symbols", "hooks"])
+    parser.add_argument("--structs",   default=None, help="structs.json, for view resolution in hooks")
     a = parser.parse_args(argv)
 
     with open(a.input) as f:
         data = json.load(f)
 
-    if "structs" in data:
+    kind = a.kind
+    if kind == "auto":
+        kind = "structs" if "structs" in data else "symbols"
+
+    if kind == "structs":
         structs = [StructDef.from_dict(s) for s in data["structs"]]
         files = STRUCT_EMITTERS[a.lang].generate(structs, a.namespace)
         count = f"{len(structs)} structs"
+    elif kind == "hooks":
+        symbols = [Sym.from_dict(s) for s in data.get("symbols", [])]
+        names = set()
+        if a.structs:
+            with open(a.structs) as f:
+                names = {s["name"] for s in json.load(f).get("structs", [])}
+        files = HOOK_EMITTERS[a.lang].generate(symbols, a.namespace, names)
+        count = f"{len(symbols)} hooks"
     else:
         symbols = [Sym.from_dict(s) for s in data.get("symbols", [])]
         files = EMITTERS[a.lang].generate(symbols, a.namespace)
