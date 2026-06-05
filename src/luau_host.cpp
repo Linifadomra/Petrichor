@@ -171,6 +171,14 @@ int l_mixin_set_arg(lua_State* L) {
     return 0;
 }
 
+// Mixin.resolve(symbol) -> lightuserdata (address) or nil
+int l_mixin_resolve(lua_State* L) {
+    const char* sym = luaL_checkstring(L, 1);
+    void* p = (s_host && s_host->resolve) ? s_host->resolve(sym) : nullptr;
+    if (p) lua_pushlightuserdata(L, p); else lua_pushnil(L);
+    return 1;
+}
+
 // Log.info / Log.warn / Log.err
 int l_log(lua_State* L) {
     const char* tag = luaL_checkstring(L, 1);
@@ -274,6 +282,7 @@ int l_require_mixin(lua_State* L) {
     lua_pushcfunction(L, l_mem_write,      "write");    lua_setfield(L, -2, "write");
     lua_pushcfunction(L, l_mixin_arg,      "arg");      lua_setfield(L, -2, "arg");
     lua_pushcfunction(L, l_mixin_set_arg,  "set_arg");  lua_setfield(L, -2, "set_arg");
+    lua_pushcfunction(L, l_mixin_resolve,  "resolve");  lua_setfield(L, -2, "resolve");
     return 1;
 }
 
