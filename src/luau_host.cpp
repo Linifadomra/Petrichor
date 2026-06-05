@@ -35,11 +35,13 @@ void mem_push(lua_State* L, const char* kind, void* p) {
     else if (strcmp(kind, "f32") == 0) lua_pushnumber(L, *(float*)p);
     else if (strcmp(kind, "f64") == 0) lua_pushnumber(L, *(double*)p);
     else if (strcmp(kind, "ptr") == 0) lua_pushlightuserdata(L, *(void**)p);
+    else if (strcmp(kind, "pmf") == 0) lua_pushlightuserdata(L, *(void**)p);
     else luaL_error(L, "unknown kind '%s'", kind);
 }
 
 void mem_store(lua_State* L, const char* kind, void* p, int vidx) {
     if      (strcmp(kind, "ptr") == 0) *(void**)p  = lua_tolightuserdata(L, vidx);
+    else if (strcmp(kind, "pmf") == 0) { *(void**)p = lua_tolightuserdata(L, vidx); ((void**)p)[1] = nullptr; }
     else if (strcmp(kind, "f32") == 0) *(float*)p  = (float)luaL_checknumber(L, vidx);
     else if (strcmp(kind, "f64") == 0) *(double*)p = luaL_checknumber(L, vidx);
     else {
