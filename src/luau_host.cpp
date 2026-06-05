@@ -300,45 +300,49 @@ int l_require_log(lua_State* L) {
 // to file-based loading from the mod directory.
 std::string s_mod_dir;
 
-int l_loader_builtin(lua_State* L) {
-    const char* name = luaL_checkstring(L, 1);
-    if (strcmp(name, "Augment.Mixin") == 0) { l_require_mixin(L); return 1; }
-    if (strcmp(name, "Petrichor.Log") == 0)  { l_require_log(L);   return 1; }
-    lua_pushnil(L);
-    return 1;
-}
-
-int l_loader_file(lua_State* L) {
+int l_require(lua_State* L) {
     const char* name = luaL_checkstring(L, 1);
 
-    // Convert "Foo.Bar.Baz" -> "Foo/Bar/Baz.luau"
-    std::string path = s_mod_dir + "/";
-    for (const char* p = name; *p; p++)
-        path += (*p == '.') ? '/' : *p;
-    path += ".luau";
-
-    FILE* f = fopen(path.c_str(), "rb");
-    if (!f) {
-        lua_pushfstring(L, "\n\tno file '%s'", path.c_str());
-        return 1;
+    lua_getfield(L, LUA_REGISTRYINDEX, "_petrichor_modcache");
+    if (!lua_istable(L, -1)) {
+        lua_pop(L, 1);
+        lua_newtable(L);
+        lua_pushvalue(L, -1);
+        lua_setfield(L, LUA_REGISTRYINDEX, "_petrichor_modcache");
     }
-    fseek(f, 0, SEEK_END);
-    long sz = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    std::string src(sz, '\0');
-    fread(&src[0], 1, sz, f);
-    fclose(f);
+    lua_getfield(L, -1, name);
+    if (!lua_isnil(L, -1)) return 1;
+    lua_pop(L, 1);
 
-    // Compile with Luau compiler
-    size_t bytecodeSize = 0;
-    char* bytecode = luau_compile(src.c_str(), src.size(), nullptr, &bytecodeSize);
-    int rc = luau_load(L, name, bytecode, bytecodeSize, 0);
-    free(bytecode);
+    if (strcmp(name, "Augment.Mixin") == 0) {
+        l_require_mixin(L);
+    } else if (strcmp(name, "Petrichor.Log") == 0) {
+        l_require_log(L);
+    } else {
+        std::string path = s_mod_dir + "/";
+        for (const char* p = name; *p; p++)
+            path += (*p == '.') ? '/' : *p;
+        path += ".luau";
 
-    if (rc != LUA_OK) {
-        // Return error string for require to report
-        return 1; // error is already on stack
+        FILE* f = fopen(path.c_str(), "rb");
+        if (!f) luaL_error(L, "module '%s' not found (%s)", name, path.c_str());
+        fseek(f, 0, SEEK_END);
+        long sz = ftell(f);
+        fseek(f, 0, SEEK_SET);
+        std::string src(sz, '\0');
+        fread(&src[0], 1, sz, f);
+        fclose(f);
+
+        size_t bcSize = 0;
+        char* bc = luau_compile(src.c_str(), src.size(), nullptr, &bcSize);
+        int rc = luau_load(L, name, bc, bcSize, 0);
+        free(bc);
+        if (rc != LUA_OK) luaL_error(L, "compile '%s': %s", name, lua_tostring(L, -1));
+        if (lua_pcall(L, 0, 1, 0) != LUA_OK) luaL_error(L, "load '%s': %s", name, lua_tostring(L, -1));
     }
+
+    lua_pushvalue(L, -1);
+    lua_setfield(L, -3, name);
     return 1;
 }
 
@@ -356,15 +360,8 @@ bool luau_boot(const PetrichorHost* host) {
 
     luaL_openlibs(s_L);
 
-    // Register loaders: builtin first, then file
-    lua_getglobal(s_L, "package");
-    lua_getfield(s_L, -1, "loaders");
-    int n = (int)lua_objlen(s_L, -1);
-    lua_pushcfunction(s_L, l_loader_builtin, "loader_builtin");
-    lua_rawseti(s_L, -2, n + 1);
-    lua_pushcfunction(s_L, l_loader_file, "loader_file");
-    lua_rawseti(s_L, -2, n + 2);
-    lua_pop(s_L, 2);
+    lua_pushcfunction(s_L, l_require, "require");
+    lua_setglobal(s_L, "require");
 
     plog("luau", "Luau host started");
     return true;
