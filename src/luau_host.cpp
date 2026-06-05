@@ -73,8 +73,7 @@ int l_mixin_register(lua_State* L) {
     luaL_checktype(L, 3, LUA_TFUNCTION);
 
     // Store fn in registry so we can pass a stable pointer
-    lua_pushvalue(L, 3);
-    int ref = lua_ref(L, LUA_REGISTRYINDEX);
+    int ref = lua_ref(L, 3);
 
     // Callback that fires the stored Luau function
     auto cb = [](PetrichorMixinCtx* ctx, void* modctx) {
@@ -203,8 +202,7 @@ int l_builder_phase(lua_State* L, const char* phase) {
     luaL_checktype(L, 2, LUA_TFUNCTION);
     int priority = (int)luaL_optinteger(L, 3, 0);
     const char* tag = luaL_optstring(L, 4, nullptr);
-    lua_pushvalue(L, 2);
-    int ref = lua_ref(L, LUA_REGISTRYINDEX);
+    int ref = lua_ref(L, 2);
     b->entries.push_back({ phase, ref, priority, tag ? tag : "" });
     lua_pushvalue(L, 1); // return self for chaining
     return 1;
