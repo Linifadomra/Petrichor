@@ -47,3 +47,29 @@ class Sym:
             returns_void=d.get("returns_void", False),
             params=[Param.from_dict(p) for p in d.get("params", [])],
         )
+
+
+@dataclass
+class Field:
+    name: str = ""
+    offset: int = 0
+    kind: str = ""
+
+    @staticmethod
+    def from_dict(d: dict) -> "Field":
+        return Field(name=d.get("name", ""), offset=d.get("offset", 0), kind=d.get("kind", ""))
+
+
+@dataclass
+class StructDef:
+    name: str = ""
+    size: int = 0
+    fields: list[Field] = field(default_factory=list)
+
+    @staticmethod
+    def from_dict(d: dict) -> "StructDef":
+        return StructDef(
+            name=d.get("name", ""),
+            size=d.get("size", 0),
+            fields=[Field.from_dict(f) for f in d.get("fields", [])],
+        )

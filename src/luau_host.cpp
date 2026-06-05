@@ -6,6 +6,7 @@
 
 #include <cstring>
 #include <cstdio>
+#include <cstdint>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -17,6 +18,43 @@ namespace {
 
 const PetrichorHost* s_host = nullptr;
 lua_State* s_L = nullptr;
+
+// Argument slots of the hook currently executing (set around each callback).
+void** s_cur_args = nullptr;
+
+// Read/write a single ffi-kind value at p.
+void mem_push(lua_State* L, const char* kind, void* p) {
+    if      (strcmp(kind, "u8")  == 0) lua_pushnumber(L, *(uint8_t*)p);
+    else if (strcmp(kind, "i8")  == 0) lua_pushnumber(L, *(int8_t*)p);
+    else if (strcmp(kind, "u16") == 0) lua_pushnumber(L, *(uint16_t*)p);
+    else if (strcmp(kind, "i16") == 0) lua_pushnumber(L, *(int16_t*)p);
+    else if (strcmp(kind, "u32") == 0) lua_pushnumber(L, *(uint32_t*)p);
+    else if (strcmp(kind, "i32") == 0) lua_pushnumber(L, *(int32_t*)p);
+    else if (strcmp(kind, "u64") == 0) lua_pushnumber(L, (double)*(uint64_t*)p);
+    else if (strcmp(kind, "i64") == 0) lua_pushnumber(L, (double)*(int64_t*)p);
+    else if (strcmp(kind, "f32") == 0) lua_pushnumber(L, *(float*)p);
+    else if (strcmp(kind, "f64") == 0) lua_pushnumber(L, *(double*)p);
+    else if (strcmp(kind, "ptr") == 0) lua_pushlightuserdata(L, *(void**)p);
+    else luaL_error(L, "unknown kind '%s'", kind);
+}
+
+void mem_store(lua_State* L, const char* kind, void* p, int vidx) {
+    if      (strcmp(kind, "ptr") == 0) *(void**)p  = lua_tolightuserdata(L, vidx);
+    else if (strcmp(kind, "f32") == 0) *(float*)p  = (float)luaL_checknumber(L, vidx);
+    else if (strcmp(kind, "f64") == 0) *(double*)p = luaL_checknumber(L, vidx);
+    else {
+        int64_t v = (int64_t)luaL_checknumber(L, vidx);
+        if      (strcmp(kind, "u8")  == 0) *(uint8_t*)p  = (uint8_t)v;
+        else if (strcmp(kind, "i8")  == 0) *(int8_t*)p   = (int8_t)v;
+        else if (strcmp(kind, "u16") == 0) *(uint16_t*)p = (uint16_t)v;
+        else if (strcmp(kind, "i16") == 0) *(int16_t*)p  = (int16_t)v;
+        else if (strcmp(kind, "u32") == 0) *(uint32_t*)p = (uint32_t)v;
+        else if (strcmp(kind, "i32") == 0) *(int32_t*)p  = (int32_t)v;
+        else if (strcmp(kind, "u64") == 0) *(uint64_t*)p = (uint64_t)v;
+        else if (strcmp(kind, "i64") == 0) *(int64_t*)p  = v;
+        else luaL_error(L, "unknown kind '%s'", kind);
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Host bindings exposed to Luau
@@ -51,11 +89,14 @@ int l_mixin_register(lua_State* L) {
         lua_pushboolean(L2, ctx->cancelled);
         lua_setfield(L2, -2, "cancelled");
 
+        void** saved = s_cur_args;
+        s_cur_args = ctx->args;
         if (lua_pcall(L2, 1, 0, 0) != LUA_OK) {
             const char* err = lua_tostring(L2, -1);
             s_host->log("luau", err ? err : "unknown error in mixin callback");
             lua_pop(L2, 1);
         }
+        s_cur_args = saved;
     };
 
     if (!s_host || !s_host->mixin) {
@@ -73,22 +114,61 @@ int l_mixin_register(lua_State* L) {
     return 1;
 }
 
-// Mixin.call(symbol, args_table) -> any
+// Mixin.call(symbol, kinds, values) -> nil
+// kinds[i]/values[i] are parallel; for a member fn index 1 is "ptr" (self).
 int l_mixin_call(lua_State* L) {
     const char* sym = luaL_checkstring(L, 1);
-    if (!s_host || !s_host->resolve) {
-        lua_pushnil(L);
-        return 1;
+    if (!s_host || !s_host->call) { lua_pushnil(L); return 1; }
+    luaL_checktype(L, 2, LUA_TTABLE);
+    luaL_checktype(L, 3, LUA_TTABLE);
+
+    int n = (int)lua_objlen(L, 2);
+    if (n > 16) n = 16;
+
+    uint64_t storage[16] = {};
+    void*    argp[16];
+    for (int i = 0; i < n; i++) {
+        lua_rawgeti(L, 2, i + 1);                  // kind
+        const char* kind = luaL_checkstring(L, -1);
+        lua_rawgeti(L, 3, i + 1);                  // value
+        mem_store(L, kind, &storage[i], -1);
+        lua_pop(L, 2);
+        argp[i] = &storage[i];
     }
-    // For now just resolve and return the pointer as a light userdata;
-    // actual typed dispatch is handled by the generated call() wrappers.
-    void* fn = s_host->resolve(sym);
-    if (!fn) {
-        lua_pushnil(L);
-        return 1;
-    }
-    lua_pushlightuserdata(L, fn);
+
+    s_host->call(sym, argp, (uint32_t)n);
+    lua_pushnil(L);  // return value not captured yet
     return 1;
+}
+
+// Mixin.read(self, offset, kind) -> number | lightuserdata
+int l_mem_read(lua_State* L) {
+    char* p = (char*)lua_tolightuserdata(L, 1) + luaL_checkinteger(L, 2);
+    mem_push(L, luaL_checkstring(L, 3), p);
+    return 1;
+}
+
+// Mixin.write(self, offset, kind, value)
+int l_mem_write(lua_State* L) {
+    char* p = (char*)lua_tolightuserdata(L, 1) + luaL_checkinteger(L, 2);
+    mem_store(L, luaL_checkstring(L, 3), p, 4);
+    return 0;
+}
+
+// Mixin.arg(i, kind) -> the i-th argument of the hook currently running
+int l_mixin_arg(lua_State* L) {
+    int i = (int)luaL_checkinteger(L, 1);
+    if (!s_cur_args) luaL_error(L, "Mixin.arg called outside a hook");
+    mem_push(L, luaL_checkstring(L, 2), s_cur_args[i]);
+    return 1;
+}
+
+// Mixin.set_arg(i, kind, value)
+int l_mixin_set_arg(lua_State* L) {
+    int i = (int)luaL_checkinteger(L, 1);
+    if (!s_cur_args) luaL_error(L, "Mixin.set_arg called outside a hook");
+    mem_store(L, luaL_checkstring(L, 2), s_cur_args[i], 3);
+    return 0;
 }
 
 // Log.info / Log.warn / Log.err
@@ -139,11 +219,14 @@ int l_builder_register(lua_State* L) {
             lua_setfield(L2, -2, "ret");
             lua_pushboolean(L2, ctx->cancelled);
             lua_setfield(L2, -2, "cancelled");
+            void** saved = s_cur_args;
+            s_cur_args = ctx->args;
             if (lua_pcall(L2, 1, 0, 0) != LUA_OK) {
                 const char* err = lua_tostring(L2, -1);
                 s_host->log("luau", err ? err : "unknown error in mixin callback");
                 lua_pop(L2, 1);
             }
+            s_cur_args = saved;
         };
         const char* tag = e.tag.empty() ? nullptr : e.tag.c_str();
         if      (e.phase == "before")  s_host->mixin->before (b->sym.c_str(), cb, (void*)(intptr_t)e.ref, e.priority, tag);
@@ -187,6 +270,10 @@ int l_require_mixin(lua_State* L) {
     lua_pushcfunction(L, l_mixin_register, "register"); lua_setfield(L, -2, "register");
     lua_pushcfunction(L, l_mixin_builder,  "builder");  lua_setfield(L, -2, "builder");
     lua_pushcfunction(L, l_mixin_call,     "call");     lua_setfield(L, -2, "call");
+    lua_pushcfunction(L, l_mem_read,       "read");     lua_setfield(L, -2, "read");
+    lua_pushcfunction(L, l_mem_write,      "write");    lua_setfield(L, -2, "write");
+    lua_pushcfunction(L, l_mixin_arg,      "arg");      lua_setfield(L, -2, "arg");
+    lua_pushcfunction(L, l_mixin_set_arg,  "set_arg");  lua_setfield(L, -2, "set_arg");
     return 1;
 }
 

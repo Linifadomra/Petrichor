@@ -20,6 +20,7 @@ typedef struct PetrichorMixinCtx {
     int32_t ret;
     uint8_t cancelled;
     void*   user;
+    void**  args;     // hooked call's argument slots; args[i] points to arg i
 } PetrichorMixinCtx;
 
 typedef void (*PetrichorMixinFn)(PetrichorMixinCtx* ctx, void* modctx);
@@ -43,6 +44,7 @@ typedef struct PetrichorHost {
     void        (*subscribe_events)(const PetrichorEvents* ev);
     const PetrichorMixinApi* mixin;
     void*       (*resolve)(const char* name);           // symbol/service lookup
+    void        (*call)(const char* sym, void** args, uint32_t nargs);  // invoke a game fn
     void*       game_api;                               // opaque to petrichor
 } PetrichorHost;
 

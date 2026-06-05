@@ -29,6 +29,25 @@ def _luau_type(cpp: str, opaque: bool = False) -> str:
     return CPP_TO_LUAU.get(cpp.strip(), "number")
 
 
+# cpp type -> ffi kind passed to Mixin.call for marshaling.
+CPP_TO_FFI: dict[str, str] = {
+    "bool": "u8", "char": "i8", "s8": "i8", "int8_t": "i8", "unsigned char": "u8",
+    "u8": "u8", "uint8_t": "u8", "s16": "i16", "int16_t": "i16", "short": "i16",
+    "u16": "u16", "uint16_t": "u16", "unsigned short": "u16",
+    "s32": "i32", "int32_t": "i32", "int": "i32", "BOOL": "i32",
+    "u32": "u32", "uint32_t": "u32", "unsigned int": "u32", "uint": "u32",
+    "s64": "i64", "int64_t": "i64", "long long": "i64",
+    "u64": "u64", "uint64_t": "u64", "unsigned long long": "u64",
+    "f32": "f32", "float": "f32", "f64": "f64", "double": "f64",
+}
+
+
+def _ffi_kind(cpp: str, opaque: bool = False) -> str:
+    if opaque:
+        return "ptr"
+    return CPP_TO_FFI.get(cpp.strip(), "ptr")
+
+
 def _esc(name: str) -> str:
     return f"{name}_" if name in LUAU_KEYWORDS else name
 
@@ -108,12 +127,17 @@ class LuauEmitter:
 
         # --- Call signature ---
         call_params: list[str] = []
+        arg_names: list[str] = []
+        arg_kinds: list[str] = []
         if s.is_member:
             call_params.append("self: number")
+            arg_names.append("self")
+            arg_kinds.append('"ptr"')
         for p in s.params:
             pn = _esc(p.name)
-            lt = _luau_type(p.type, p.opaque)
-            call_params.append(f"{pn}: {lt}")
+            call_params.append(f"{pn}: {_luau_type(p.type, p.opaque)}")
+            arg_names.append(pn)
+            arg_kinds.append(f'"{_ffi_kind(p.type, p.opaque)}"')
         call_ret = "nil" if s.returns_void else _luau_type(s.return_type)
 
         # --- Symbol table ---
@@ -122,8 +146,8 @@ class LuauEmitter:
         w(f"")
 
         # call()
-        w(f"    call = function({', '.join(p.split(':')[0].strip() for p in call_params)}): {call_ret}")
-        w(f"        return Mixin.call(\"{s.symbol}\", {{ {', '.join(p.split(':')[0].strip() for p in call_params)} }})")
+        w(f"    call = function({', '.join(call_params)}): {call_ret}")
+        w(f"        return Mixin.call(\"{s.symbol}\", {{ {', '.join(arg_kinds)} }}, {{ {', '.join(arg_names)} }})")
         w(f"    end,")
         w(f"")
 
