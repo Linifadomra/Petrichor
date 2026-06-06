@@ -71,6 +71,28 @@ const char* resolveName(const char* name) {
     return m ? m : name;
 }
 
+void fire_hook(PetrichorMixinCtx* ctx, int ref) {
+    lua_State* L = s_L;
+    lua_rawgeti(L, LUA_REGISTRYINDEX, ref);
+
+    lua_newtable(L);
+    lua_pushlightuserdata(L, ctx->self);  lua_setfield(L, -2, "self");
+    lua_pushlightuserdata(L, ctx->ret);   lua_setfield(L, -2, "ret");
+    lua_pushboolean(L, ctx->cancelled);   lua_setfield(L, -2, "cancelled");
+
+    void** sa = s_cur_args; void* sr = s_cur_ret;
+    s_cur_args = ctx->args; s_cur_ret = ctx->ret;
+    if (lua_pcall(L, 1, 1, 0) != LUA_OK) {
+        const char* err = lua_tostring(L, -1);
+        s_host->log("luau", err ? err : "hook error");
+        lua_pop(L, 1);
+    } else {
+        if (!lua_isnil(L, -1)) ctx->cancelled = (uint8_t)lua_toboolean(L, -1);
+        lua_pop(L, 1);
+    }
+    s_cur_args = sa; s_cur_ret = sr;
+}
+
 // ---------------------------------------------------------------------------
 // Host bindings exposed to Luau
 // ---------------------------------------------------------------------------
@@ -88,29 +110,7 @@ int l_mixin_register(lua_State* L) {
     // Store fn in registry so we can pass a stable pointer
     int ref = lua_ref(L, 3);
 
-    // Callback that fires the stored Luau function
-    auto cb = [](PetrichorMixinCtx* ctx, void* modctx) {
-        lua_State* L2 = s_L;
-        int ref2 = (int)(intptr_t)modctx;
-        lua_rawgeti(L2, LUA_REGISTRYINDEX, ref2);
-
-        lua_newtable(L2);
-        lua_pushlightuserdata(L2, ctx->self);
-        lua_setfield(L2, -2, "self");
-        lua_pushlightuserdata(L2, ctx->ret);
-        lua_setfield(L2, -2, "ret");
-        lua_pushboolean(L2, ctx->cancelled);
-        lua_setfield(L2, -2, "cancelled");
-
-        void** saved = s_cur_args;
-        s_cur_args = ctx->args;
-        if (lua_pcall(L2, 1, 0, 0) != LUA_OK) {
-            const char* err = lua_tostring(L2, -1);
-            s_host->log("luau", err ? err : "unknown error in mixin callback");
-            lua_pop(L2, 1);
-        }
-        s_cur_args = saved;
-    };
+    auto cb = [](PetrichorMixinCtx* ctx, void* modctx) { fire_hook(ctx, (int)(intptr_t)modctx); };
 
     if (!s_host || !s_host->mixin) {
         lua_pushboolean(L, 0);
@@ -226,12 +226,22 @@ int l_mixin_cstr(lua_State* L) {
 }
 
 // Log.info / Log.warn / Log.err
-int l_log(lua_State* L) {
+int l_log_level(lua_State* L, const char* level) {
     const char* tag = luaL_checkstring(L, 1);
     const char* msg = luaL_checkstring(L, 2);
-    if (s_host) s_host->log(tag, msg);
+    if (!s_host) return 0;
+    if (level) {
+        char buf[512];
+        snprintf(buf, sizeof(buf), "[%s] %s", level, msg);
+        s_host->log(tag, buf);
+    } else {
+        s_host->log(tag, msg);
+    }
     return 0;
 }
+int l_log_info(lua_State* L) { return l_log_level(L, nullptr); }
+int l_log_warn(lua_State* L) { return l_log_level(L, "warn"); }
+int l_log_err (lua_State* L) { return l_log_level(L, "err"); }
 
 // ---------------------------------------------------------------------------
 // Builder metatable  (returned by Mixin.builder(sym))
@@ -260,27 +270,7 @@ int l_builder_replace (lua_State* L) { return l_builder_phase(L, "replace"); }
 int l_builder_register(lua_State* L) {
     Builder* b = (Builder*)luaL_checkudata(L, 1, "PetrichorBuilder");
     for (auto& e : b->entries) {
-        // Re-use l_mixin_register logic inline
-        auto cb = [](PetrichorMixinCtx* ctx, void* modctx) {
-            lua_State* L2 = s_L;
-            int ref2 = (int)(intptr_t)modctx;
-            lua_rawgeti(L2, LUA_REGISTRYINDEX, ref2);
-            lua_newtable(L2);
-            lua_pushlightuserdata(L2, ctx->self);
-            lua_setfield(L2, -2, "self");
-            lua_pushlightuserdata(L2, ctx->ret);
-            lua_setfield(L2, -2, "ret");
-            lua_pushboolean(L2, ctx->cancelled);
-            lua_setfield(L2, -2, "cancelled");
-            void** saved = s_cur_args;
-            s_cur_args = ctx->args;
-            if (lua_pcall(L2, 1, 0, 0) != LUA_OK) {
-                const char* err = lua_tostring(L2, -1);
-                s_host->log("luau", err ? err : "unknown error in mixin callback");
-                lua_pop(L2, 1);
-            }
-            s_cur_args = saved;
-        };
+        auto cb = [](PetrichorMixinCtx* ctx, void* modctx) { fire_hook(ctx, (int)(intptr_t)modctx); };
         const char* tag = e.tag.empty() ? nullptr : e.tag.c_str();
         if      (e.phase == "before")  s_host->mixin->before (b->sym.c_str(), cb, (void*)(intptr_t)e.ref, e.priority, tag);
         else if (e.phase == "after")   s_host->mixin->after  (b->sym.c_str(), cb, (void*)(intptr_t)e.ref, e.priority, tag);
@@ -289,16 +279,11 @@ int l_builder_register(lua_State* L) {
     return 0;
 }
 
-int l_builder_gc(lua_State* L) {
-    Builder* b = (Builder*)luaL_checkudata(L, 1, "PetrichorBuilder");
-    b->~Builder();
-    return 0;
-}
-
 // Mixin.builder(symbol) -> Builder
 int l_mixin_builder(lua_State* L) {
     const char* sym = luaL_checkstring(L, 1);
-    Builder* b = (Builder*)lua_newuserdata(L, sizeof(Builder));
+    Builder* b = (Builder*)lua_newuserdatadtor(L, sizeof(Builder),
+        [](void* p) { static_cast<Builder*>(p)->~Builder(); });
     new (b) Builder();
     b->sym = sym;
     if (luaL_newmetatable(L, "PetrichorBuilder")) {
@@ -308,8 +293,6 @@ int l_mixin_builder(lua_State* L) {
         lua_pushcfunction(L, l_builder_replace,  "replace");  lua_setfield(L, -2, "replace");
         lua_pushcfunction(L, l_builder_register, "register"); lua_setfield(L, -2, "register");
         lua_setfield(L, -2, "__index");
-        lua_pushcfunction(L, l_builder_gc, "__gc");
-        lua_setfield(L, -2, "__gc");
     }
     lua_setmetatable(L, -2);
     return 1;
@@ -416,25 +399,7 @@ int l_n_register(lua_State* L) {
     luaL_checktype(L, 3, LUA_TFUNCTION);
     int ref = lua_ref(L, 3);
 
-    auto cb = [](PetrichorMixinCtx* ctx, void* modctx) {
-        lua_State* L2 = s_L;
-        lua_rawgeti(L2, LUA_REGISTRYINDEX, (int)(intptr_t)modctx);
-        lua_newtable(L2);
-        lua_pushlightuserdata(L2, ctx->self);  lua_setfield(L2, -2, "self");
-        lua_pushlightuserdata(L2, ctx->ret);   lua_setfield(L2, -2, "ret");
-        lua_pushboolean(L2, ctx->cancelled);   lua_setfield(L2, -2, "cancelled");
-        void** sa = s_cur_args; void* sr = s_cur_ret;
-        s_cur_args = ctx->args; s_cur_ret = ctx->ret;
-        if (lua_pcall(L2, 1, 1, 0) != LUA_OK) {
-            const char* err = lua_tostring(L2, -1);
-            s_host->log("luau", err ? err : "hook error");
-            lua_pop(L2, 1);
-        } else {
-            ctx->cancelled = (uint8_t)lua_toboolean(L2, -1);
-            lua_pop(L2, 1);
-        }
-        s_cur_args = sa; s_cur_ret = sr;
-    };
+    auto cb = [](PetrichorMixinCtx* ctx, void* modctx) { fire_hook(ctx, (int)(intptr_t)modctx); };
 
     if (!s_host || !s_host->mixin) { lua_pushboolean(L, 0); return 1; }
     void* mc = (void*)(intptr_t)ref;
@@ -502,15 +467,15 @@ int l_require_mixin(lua_State* L) {
 
 int l_require_log(lua_State* L) {
     lua_newtable(L);
-    lua_pushcfunction(L, l_log, "log"); lua_setfield(L, -2, "info");
-    lua_pushcfunction(L, l_log, "log"); lua_setfield(L, -2, "warn");
-    lua_pushcfunction(L, l_log, "log"); lua_setfield(L, -2, "err");
+    lua_pushcfunction(L, l_log_info, "info"); lua_setfield(L, -2, "info");
+    lua_pushcfunction(L, l_log_warn, "warn"); lua_setfield(L, -2, "warn");
+    lua_pushcfunction(L, l_log_err,  "err");  lua_setfield(L, -2, "err");
     return 1;
 }
 
 // Custom require that resolves built-in petrichor modules then falls back
 // to file-based loading from the mod directory.
-std::string s_mod_dir;
+std::vector<std::string> s_mod_dirs;
 
 int l_require(lua_State* L) {
     const char* name = luaL_checkstring(L, 1);
@@ -535,19 +500,27 @@ int l_require(lua_State* L) {
     } else if (strcmp(name, "Petrichor.Log") == 0) {
         l_require_log(L);
     } else {
-        std::string path = s_mod_dir + "/";
+        std::string rel;
         for (const char* p = name; *p; p++)
-            path += (*p == '.') ? '/' : *p;
-        path += ".luau";
+            rel += (*p == '.') ? '/' : *p;
+        rel += ".luau";
 
-        FILE* f = fopen(path.c_str(), "rb");
-        if (!f) luaL_error(L, "module '%s' not found (%s)", name, path.c_str());
+        std::string path;
+        FILE* f = nullptr;
+        for (const auto& dir : s_mod_dirs) {
+            path = dir + "/" + rel;
+            f = fopen(path.c_str(), "rb");
+            if (f) break;
+        }
+        if (!f) luaL_error(L, "module '%s' not found", name);
         fseek(f, 0, SEEK_END);
         long sz = ftell(f);
+        if (sz < 0) { fclose(f); luaL_error(L, "module '%s': cannot read %s", name, path.c_str()); }
         fseek(f, 0, SEEK_SET);
-        std::string src(sz, '\0');
-        fread(&src[0], 1, sz, f);
+        std::string src((size_t)sz, '\0');
+        size_t got = fread(&src[0], 1, (size_t)sz, f);
         fclose(f);
+        src.resize(got);
 
         size_t bcSize = 0;
         char* bc = luau_compile(src.c_str(), src.size(), nullptr, &bcSize);
@@ -571,6 +544,8 @@ namespace petrichor {
 
 bool luau_boot(const PetrichorHost* host) {
     s_host = host;
+    if (host && host->version != PETRICHOR_API_VERSION)
+        plog("luau", "host API version %u != petrichor %u", host->version, (unsigned)PETRICHOR_API_VERSION);
     s_L = luaL_newstate();
     if (!s_L) return false;
 
@@ -586,7 +561,9 @@ bool luau_boot(const PetrichorHost* host) {
 bool luau_loadMod(const char* dir, const char* id, const char* type, const char* entry) {
     if (!s_L) return false;
 
-    s_mod_dir = dir;
+    bool known = false;
+    for (const auto& d : s_mod_dirs) if (d == dir) { known = true; break; }
+    if (!known) s_mod_dirs.emplace_back(dir);
 
     std::string entryFile = std::string(dir) + "/" + (entry && entry[0] ? entry : "main.luau");
 
@@ -597,10 +574,12 @@ bool luau_loadMod(const char* dir, const char* id, const char* type, const char*
     }
     fseek(f, 0, SEEK_END);
     long sz = ftell(f);
+    if (sz < 0) { fclose(f); plog("luau", "cannot read %s", entryFile.c_str()); return false; }
     fseek(f, 0, SEEK_SET);
-    std::string src(sz, '\0');
-    fread(&src[0], 1, sz, f);
+    std::string src((size_t)sz, '\0');
+    size_t got = fread(&src[0], 1, (size_t)sz, f);
     fclose(f);
+    src.resize(got);
 
     size_t bytecodeSize = 0;
     char* bytecode = luau_compile(src.c_str(), src.size(), nullptr, &bytecodeSize);
@@ -630,6 +609,7 @@ void luau_stop() {
         s_L = nullptr;
     }
     s_host = nullptr;
+    s_mod_dirs.clear();
 }
 
 } // namespace petrichor
