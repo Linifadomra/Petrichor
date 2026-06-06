@@ -27,10 +27,6 @@ if(NOT WIN32)
     target_link_libraries(petrichor PRIVATE ${CMAKE_DL_LIBS})
 endif()
 
-# Managed projects (Petrichor.ModHost / Petrichor.ModSdk) for the consumer to publish + deploy.
-set(PETRICHOR_MODHOST_CSPROJ ${CMAKE_CURRENT_SOURCE_DIR}/managed/Petrichor.ModHost/Petrichor.ModHost.csproj CACHE INTERNAL "")
-set(PETRICHOR_MODSDK_CSPROJ  ${CMAKE_CURRENT_SOURCE_DIR}/managed/Petrichor.ModSdk/Petrichor.ModSdk.csproj   CACHE INTERNAL "")
-
 option(PETRICHOR_TESTS "Build petrichor tests" OFF)
 if(PETRICHOR_TESTS)
     enable_testing()
