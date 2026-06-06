@@ -24,6 +24,26 @@ static const struct { const char* name; const unsigned char* src; unsigned int l
 
 namespace {
 
+struct HookContextGuard {
+    void**& args_ref;
+    void*&  ret_ref;
+    void**  saved_args;
+    void*   saved_ret;
+
+    HookContextGuard(void**& args_ref, void*& ret_ref, void** new_args, void* new_ret)
+        : args_ref(args_ref), ret_ref(ret_ref)
+        , saved_args(args_ref), saved_ret(ret_ref)
+    {
+        args_ref = new_args;
+        ret_ref  = new_ret;
+    }
+
+    ~HookContextGuard() {
+        args_ref = saved_args;
+        ret_ref  = saved_ret;
+    }
+};
+
 const PetrichorHost* s_host   = nullptr;
 lua_State*           s_L      = nullptr;
 void**               s_cur_args = nullptr;
@@ -82,8 +102,7 @@ void fire_hook(PetrichorMixinCtx* ctx, int ref) {
     lua_pushlightuserdata(L, ctx->ret);  lua_setfield(L, -2, "ret");
     lua_pushboolean(L, ctx->cancelled);  lua_setfield(L, -2, "cancelled");
 
-    void** sa = s_cur_args; void* sr = s_cur_ret;
-    s_cur_args = ctx->args; s_cur_ret = ctx->ret;
+    HookContextGuard guard(s_cur_args, s_cur_ret, ctx->args, ctx->ret);
 
     if (lua_pcall(L, 1, 1, 0) != LUA_OK) {
         const char* err = lua_tostring(L, -1);
@@ -93,8 +112,8 @@ void fire_hook(PetrichorMixinCtx* ctx, int ref) {
         if (!lua_isnil(L, -1)) ctx->cancelled = (uint8_t)lua_toboolean(L, -1);
         lua_pop(L, 1);
     }
-
-    s_cur_args = sa; s_cur_ret = sr;
+    // guard destructor restores s_cur_args and s_cur_ret here,
+    // even if lua_pcall throws
 }
 
 int l_mixin_register(lua_State* L) {
