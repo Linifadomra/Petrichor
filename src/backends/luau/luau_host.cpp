@@ -525,16 +525,7 @@ bool luau_loadMod(const char* dir, const char* id, const char* type, const char*
         return false;
     }
 
-    lua_getfield(s_L, -1, "new");
-    if (!lua_isfunction(s_L, -1)) {
-        plog("luau", "mod '%s' class has no .new()", id);
-        lua_pop(s_L, 2);
-        return false;
-    }
-    lua_pushvalue(s_L, -2);
-    lua_pop(s_L, 1);
-
-    const char* required[] = { "init", "tick", "shutdown", nullptr };
+    const char* required[] = { "tick", "shutdown", nullptr };
     for (const char** m = required; *m; m++) {
         lua_getfield(s_L, -1, *m);
         bool ok = lua_isfunction(s_L, -1);
@@ -545,6 +536,20 @@ bool luau_loadMod(const char* dir, const char* id, const char* type, const char*
             return false;
         }
     }
+
+    lua_getfield(s_L, -1, "new");
+    if (!lua_isfunction(s_L, -1)) {
+        plog("luau", "mod '%s' class has no .new()", id);
+        lua_pop(s_L, 2);
+        return false;
+    }
+    if (lua_pcall(s_L, 0, 1, 0) != LUA_OK) {
+        plog("luau", "mod '%s' new() failed: %s", id, lua_tostring(s_L, -1));
+        lua_pop(s_L, 2);
+        return false;
+    }
+
+    lua_remove(s_L, -2);
 
     int ref = lua_ref(s_L, -1);
     lua_pop(s_L, 1);
