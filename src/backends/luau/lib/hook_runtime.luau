@@ -1,5 +1,4 @@
-static const char* PETRICHOR_HOOK_RUNTIME = R"LUAU(
-local N = require("Augment._native")
+local N = require("Augment.Native")
 
 local fieldCache = {}
 local function fieldsOf(struct)
@@ -184,4 +183,3 @@ return setmetatable({}, {
         return ambiguous(flat, n)
     end,
 })
-)LUAU";
