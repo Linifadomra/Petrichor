@@ -13,10 +13,12 @@
 
 #include "prelude_hook_runtime_inc.h"
 #include "prelude_standard_inc.h"
+#include "prelude_petrichor_mod_inc.h"
 
 static const struct { const char* name; const unsigned char* src; unsigned int len; } s_prelude_libs[] = {
-    { "Augment.Hook",     hook_runtime_luau, hook_runtime_luau_len },
-    { "Augment.Standard", standard_luau,     standard_luau_len     },
+    { "Augment.Hook",     hook_runtime_luau, hook_runtime_luau_len     },
+    { "Augment.Standard", standard_luau,     standard_luau_len         }, // globals; class(), etc.
+    { "Petrichor.Mod",    petrichor_mod_luau,   petrichor_mod_luau_len },
     { nullptr, nullptr, 0 }
 };
 
@@ -517,13 +519,74 @@ bool luau_loadMod(const char* dir, const char* id, const char* type, const char*
         return false;
     }
 
+    if (!lua_istable(s_L, -1)) {
+        plog("luau", "mod '%s' did not return a class table", id);
+        lua_pop(s_L, 1);
+        return false;
+    }
+
+    lua_getfield(s_L, -1, "new");
+    if (!lua_isfunction(s_L, -1)) {
+        plog("luau", "mod '%s' class has no .new()", id);
+        lua_pop(s_L, 2);
+        return false;
+    }
+    lua_pushvalue(s_L, -2);
     lua_pop(s_L, 1);
+
+    const char* required[] = { "init", "tick", "shutdown", nullptr };
+    for (const char** m = required; *m; m++) {
+        lua_getfield(s_L, -1, *m);
+        bool ok = lua_isfunction(s_L, -1);
+        lua_pop(s_L, 1);
+        if (!ok) {
+            plog("luau", "mod '%s' missing required method '%s'", id, *m);
+            lua_pop(s_L, 1);
+            return false;
+        }
+    }
+
+    int ref = lua_ref(s_L, -1);
+    lua_pop(s_L, 1);
+    s_mods.push_back({ std::string(id), ref });
     plog("luau", "loaded mod: %s", id);
+
     return true;
 }
 
+void luau_tick(float delta) {
+    if (!s_L) return;
+    for (auto& mod : s_mods) {
+        lua_rawgeti(s_L, LUA_REGISTRYINDEX, mod.ref);
+        lua_getfield(s_L, -1, "tick");
+        lua_pushvalue(s_L, -2);
+        lua_pushnumber(s_L, delta);
+        if (lua_pcall(s_L, 2, 0, 0) != LUA_OK) {
+            plog("luau", "tick error in %s: %s",
+                mod.id.c_str(), lua_tostring(s_L, -1));
+            lua_pop(s_L, 1);
+        }
+        lua_pop(s_L, 1);
+    }
+}
+
 void luau_stop() {
-    if (s_L) { lua_close(s_L); s_L = nullptr; }
+    if (!s_L) return;
+    for (auto& mod : s_mods) {
+        lua_rawgeti(s_L, LUA_REGISTRYINDEX, mod.ref);
+        lua_getfield(s_L, -1, "shutdown");
+        lua_pushvalue(s_L, -2);
+        if (lua_pcall(s_L, 1, 0, 0) != LUA_OK) {
+            plog("luau", "shutdown error in %s: %s",
+                 mod.id.c_str(), lua_tostring(s_L, -1));
+            lua_pop(s_L, 1);
+        }
+        lua_pop(s_L, 1);
+        lua_unref(s_L, mod.ref);
+    }
+    s_mods.clear();
+    lua_close(s_L);
+    s_L = nullptr;
     s_host = nullptr;
     s_mod_dirs.clear();
 }

@@ -115,3 +115,13 @@ extern "C" void petrichor_run(const PetrichorHost* host) {
     petrichor::native_backend_register();
     loader_run(host);
 }
+
+extern "C" void petrichor_stop(const PetrichorHost* host) {
+    if (!host) return;
+    petrichor::luau_stop();
+}
+
+extern "C" void petrichor_tick(const PetrichorHost* host, float delta) {
+    if (!host) return;
+    petrichor::luau_tick(delta);
+}

@@ -51,7 +51,9 @@ void native_shutdown() {
     s_mods.clear();
 }
 
-const PetrichorBackend s_backend = { "native", native_handles, native_init, native_load, native_shutdown };
+void stub(float delta) {} // someone make native tick, we need to get this working
+
+const PetrichorBackend s_backend = { "native", native_handles, native_init, native_load, stub, native_shutdown };
 
 } // namespace
 

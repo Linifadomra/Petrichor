@@ -58,3 +58,7 @@ _G.class = function(name, base)
 
     return cls
 end
+
+_G.mod = function(name)
+    return class(name,require("Petrichor.Mod"))
+end

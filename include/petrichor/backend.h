@@ -20,6 +20,7 @@ typedef struct PetrichorBackend {
     int  (*handles)(const char* type);
     int  (*init)(const PetrichorHost* host);
     int  (*load)(const char* dir, const PetrichorManifest* m);
+    void (*tick)(float delta);
     void (*shutdown)(void);
 } PetrichorBackend;
 

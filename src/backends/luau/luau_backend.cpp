@@ -14,8 +14,10 @@ int  luau_load(const char* dir, const PetrichorManifest* m) {
     return petrichor::luau_loadMod(dir, m->id, m->type, m->entry) ? 1 : 0;
 }
 void luau_shutdown() { petrichor::luau_stop(); }
+void luau_tick(float delta) { petrichor::luau_tick(delta); }
 
-const PetrichorBackend s_backend = { "luau", luau_handles, luau_init, luau_load, luau_shutdown };
+const PetrichorBackend s_backend = { "luau", luau_handles, luau_init, luau_load, luau_tick, luau_shutdown };
+
 
 } // namespace
 

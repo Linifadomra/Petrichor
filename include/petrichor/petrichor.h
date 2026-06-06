@@ -73,6 +73,8 @@ typedef struct PetrichorHost {
 
 // Called once by the game, after its subsystems are up, to discover + load mods.
 void petrichor_run(const PetrichorHost* host);
+void petrichor_tick(const PetrichorHost* host, float delta);
+void petrichor_stop(const PetrichorHost* host);
 
 #ifdef __cplusplus
 }

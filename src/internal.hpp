@@ -1,7 +1,9 @@
 #pragma once
 #include "petrichor/petrichor.h"
 #include "petrichor/backend.h"
+
 #include <string>
+#include <vector>
 
 #ifdef _WIN32
 using fxr_char = wchar_t;
@@ -29,10 +31,18 @@ std::string wide_to_utf8(const std::wstring& w);
 std::basic_string<fxr_char> to_fxr(const std::string& s);
 }
 
+struct LuauModInstance {
+    std::string id;
+    int         ref;
+};
+
+static std::vector<LuauModInstance> s_mods;
+
 // Luau host (luau_host.cpp)
 bool luau_boot(const PetrichorHost* host);
 bool luau_loadMod(const char* dir, const char* id, const char* type, const char* entry);
 void luau_stop();
+void luau_tick(float delta);
 
 // Built-in backend registration (backends/*.cpp)
 void luau_backend_register();
