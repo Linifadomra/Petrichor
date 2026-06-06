@@ -59,6 +59,18 @@ void mem_store(lua_State* L, const char* kind, void* p, int vidx) {
     }
 }
 
+// Map a readable name (flat "A_b" or qualified "A::b") to its mangled symbol via
+// the reflect manifest, so mods use real names instead of raw mangled ones.
+// Falls back to the given name (already-mangled or non-manifest symbols).
+const char* resolveName(const char* name) {
+    if (!name || !s_host || !s_host->reflect) return name;
+    std::string flat(name);
+    for (size_t p = flat.find("::"); p != std::string::npos; p = flat.find("::", p))
+        flat.replace(p, 2, "_");
+    const char* m = s_host->reflect->fn_mangled(flat.c_str(), 0);
+    return m ? m : name;
+}
+
 // ---------------------------------------------------------------------------
 // Host bindings exposed to Luau
 // ---------------------------------------------------------------------------
@@ -66,7 +78,7 @@ void mem_store(lua_State* L, const char* kind, void* p, int vidx) {
 // Mixin.register(symbol, phase, fn, priority, tag)
 // phase: "before" | "after" | "replace"
 int l_mixin_register(lua_State* L) {
-    const char* sym      = luaL_checkstring(L, 1);
+    const char* sym      = resolveName(luaL_checkstring(L, 1));
     const char* phase    = luaL_checkstring(L, 2);
     int         priority = (int)luaL_optinteger(L, 4, 0);
     const char* tag      = luaL_optstring(L, 5, nullptr);
@@ -118,7 +130,7 @@ int l_mixin_register(lua_State* L) {
 // Mixin.call(symbol, kinds, values) -> nil
 // kinds[i]/values[i] are parallel; for a member fn index 1 is "ptr" (self).
 int l_mixin_call(lua_State* L) {
-    const char* sym = luaL_checkstring(L, 1);
+    const char* sym = resolveName(luaL_checkstring(L, 1));
     if (!s_host || !s_host->call) { lua_pushnil(L); return 1; }
     luaL_checktype(L, 2, LUA_TTABLE);
     luaL_checktype(L, 3, LUA_TTABLE);
@@ -195,9 +207,21 @@ int l_mixin_set_arg(lua_State* L) {
 
 // Mixin.resolve(symbol) -> lightuserdata (address) or nil
 int l_mixin_resolve(lua_State* L) {
-    const char* sym = luaL_checkstring(L, 1);
+    const char* sym = resolveName(luaL_checkstring(L, 1));
     void* p = (s_host && s_host->resolve) ? s_host->resolve(sym) : nullptr;
     if (p) lua_pushlightuserdata(L, p); else lua_pushnil(L);
+    return 1;
+}
+
+// Mixin.cstr(s) -> lightuserdata (a persistent NUL-terminated copy of s)
+int l_mixin_cstr(lua_State* L) {
+    size_t n = 0;
+    const char* s = luaL_checklstring(L, 1, &n);
+    char* buf = (char*)(s_host && s_host->alloc ? s_host->alloc((uint32_t)(n + 1)) : nullptr);
+    if (!buf) { lua_pushnil(L); return 1; }
+    memcpy(buf, s, n);
+    buf[n] = 0;
+    lua_pushlightuserdata(L, buf);
     return 1;
 }
 
@@ -472,6 +496,7 @@ int l_require_mixin(lua_State* L) {
     lua_pushcfunction(L, l_mixin_arg,      "arg");      lua_setfield(L, -2, "arg");
     lua_pushcfunction(L, l_mixin_set_arg,  "set_arg");  lua_setfield(L, -2, "set_arg");
     lua_pushcfunction(L, l_mixin_resolve,  "resolve");  lua_setfield(L, -2, "resolve");
+    lua_pushcfunction(L, l_mixin_cstr,     "cstr");     lua_setfield(L, -2, "cstr");
     return 1;
 }
 
