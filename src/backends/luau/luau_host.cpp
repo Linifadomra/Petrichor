@@ -17,7 +17,7 @@
 
 static const struct { const char* name; const unsigned char* src; unsigned int len; } s_prelude_libs[] = {
     { "Augment.Hook",     hook_runtime_luau, hook_runtime_luau_len     },
-    { "Augment.Standard", standard_luau,     standard_luau_len         }, // globals; class(), etc.
+    { "Petrichor.Standard", standard_luau,     standard_luau_len         }, // globals; class(), etc.
     { "Petrichor.Mod",    petrichor_mod_luau,   petrichor_mod_luau_len },
     { nullptr, nullptr, 0 }
 }; // add to register_preludes func
