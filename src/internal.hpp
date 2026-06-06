@@ -29,13 +29,13 @@ std::string wide_to_utf8(const std::wstring& w);
 std::basic_string<fxr_char> to_fxr(const std::string& s);
 }
 
-// CLR host (clr_host.cpp)
-bool clr_boot(const PetrichorHost* host);
-bool clr_loadMod(const char* dir, const char* id, const char* type, const char* entry);
-void clr_stop();
+// Luau host (luau_host.cpp)
+bool luau_boot(const PetrichorHost* host);
+bool luau_loadMod(const char* dir, const char* id, const char* type, const char* entry);
+void luau_stop();
 
 // Built-in backend registration (backends/*.cpp)
-void clr_backend_register();
+void luau_backend_register();
 void native_backend_register();
 
 } // namespace petrichor

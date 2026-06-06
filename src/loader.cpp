@@ -111,9 +111,7 @@ extern "C" void petrichor_register_backend(const PetrichorBackend* b) {
 extern "C" void petrichor_run(const PetrichorHost* host) {
     if (!host) return;
     petrichor::g_host = host;
-#if PETRICHOR_DOTNET // Note: Later we should require C#
-    petrichor::clr_backend_register();
-#endif
+    petrichor::luau_backend_register();
     petrichor::native_backend_register();
     loader_run(host);
 }

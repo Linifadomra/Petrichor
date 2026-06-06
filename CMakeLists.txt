@@ -3,10 +3,6 @@ project(petrichor LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-set(PETRICHOR_DOTNET_HOST_DIR "" CACHE PATH "Directory containing nethost.h / hostfxr.h / libnethost")
-
-include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/PetrichorBindgen.cmake)
-
 add_library(petrichor STATIC
     src/loader.cpp
     src/platform.cpp
@@ -18,25 +14,41 @@ target_include_directories(petrichor
     PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
-if(PETRICHOR_DOTNET_HOST_DIR)
-    target_sources(petrichor PRIVATE
-        src/clr_host.cpp
-        src/backends/clr_backend.cpp
+add_subdirectory(vendor/luau)
+
+file(GLOB PRELUDE_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/backends/luau/lib/*.luau")
+
+find_package(Python3 REQUIRED)
+
+set(PRELUDE_HEADERS "")
+foreach(SRC ${PRELUDE_SOURCES})
+    get_filename_component(NAME ${SRC} NAME_WE)
+    set(OUT ${CMAKE_CURRENT_BINARY_DIR}/prelude_${NAME}_inc.h)
+    add_custom_command(
+        OUTPUT ${OUT}
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/bin2h.py ${SRC} ${OUT} ${NAME}_luau
+        DEPENDS ${SRC} ${CMAKE_CURRENT_SOURCE_DIR}/tools/bin2h.py
     )
-    target_include_directories(petrichor PRIVATE ${PETRICHOR_DOTNET_HOST_DIR})
-    find_library(PETRICHOR_NETHOST nethost PATHS ${PETRICHOR_DOTNET_HOST_DIR} NO_DEFAULT_PATH)
-    target_compile_definitions(petrichor PUBLIC PETRICHOR_DOTNET=1)
-    if(PETRICHOR_NETHOST)
-        target_link_libraries(petrichor PRIVATE ${PETRICHOR_NETHOST})
-    endif()
-else()
-    message(STATUS "[Petrichor] PETRICHOR_DOTNET_HOST_DIR not set. CLR backend disabled.")
-endif()
+    list(APPEND PRELUDE_HEADERS ${OUT})
+endforeach()
+
+add_custom_target(prelude_gen DEPENDS ${PRELUDE_HEADERS})
+add_dependencies(petrichor prelude_gen)
+target_include_directories(petrichor PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
+
+target_sources(petrichor PRIVATE
+    src/backends/luau/luau_host.cpp
+    src/backends/luau/luau_backend.cpp
+)
+target_link_libraries(petrichor PRIVATE Luau.VM Luau.Compiler)
+target_include_directories(petrichor PRIVATE vendor/luau/VM/include vendor/luau/Compiler/include)
 
 if(NOT WIN32)
     target_link_libraries(petrichor PRIVATE ${CMAKE_DL_LIBS})
 endif()
 
-# Managed projects (Petrichor.ModHost / Petrichor.ModSdk) for the consumer to publish + deploy.
-set(PETRICHOR_MODHOST_CSPROJ ${CMAKE_CURRENT_SOURCE_DIR}/managed/Petrichor.ModHost/Petrichor.ModHost.csproj CACHE INTERNAL "")
-set(PETRICHOR_MODSDK_CSPROJ  ${CMAKE_CURRENT_SOURCE_DIR}/managed/Petrichor.ModSdk/Petrichor.ModSdk.csproj   CACHE INTERNAL "")
+option(PETRICHOR_TESTS "Build petrichor tests" OFF)
+if(PETRICHOR_TESTS)
+    enable_testing()
+    add_subdirectory(tests)
+endif()
