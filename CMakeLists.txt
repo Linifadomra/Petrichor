@@ -18,18 +18,16 @@ add_subdirectory(vendor/luau)
 
 file(GLOB PRELUDE_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/backends/luau/lib/*.luau")
 
+find_package(Python3 REQUIRED)
+
 set(PRELUDE_HEADERS "")
 foreach(SRC ${PRELUDE_SOURCES})
     get_filename_component(NAME ${SRC} NAME_WE)
     set(OUT ${CMAKE_CURRENT_BINARY_DIR}/prelude_${NAME}_inc.h)
     add_custom_command(
         OUTPUT ${OUT}
-        COMMAND ${CMAKE_COMMAND}
-            -DINPUT=${SRC}
-            -DOUTPUT=${OUT}
-            -DNAME=${NAME}_luau
-            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/xxd.cmake
-        DEPENDS ${SRC}
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/bin2h.py ${SRC} ${OUT} ${NAME}_luau
+        DEPENDS ${SRC} ${CMAKE_CURRENT_SOURCE_DIR}/tools/bin2h.py
     )
     list(APPEND PRELUDE_HEADERS ${OUT})
 endforeach()
