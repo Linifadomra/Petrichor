@@ -1,4 +1,5 @@
 #pragma once
+#include "lua.h"
 #include "petrichor/petrichor.h"
 #include "petrichor/backend.h"
 
@@ -30,6 +31,9 @@ const std::string& exeDir();   // directory of the running executable, trailing 
 std::string wide_to_utf8(const std::wstring& w);
 std::basic_string<fxr_char> to_fxr(const std::string& s);
 }
+
+using ModuleFactory = int(*)(lua_State*);
+void luau_register_module(const char* name, ModuleFactory factory);
 
 struct LuauModInstance {
     std::string id;

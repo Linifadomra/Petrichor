@@ -20,7 +20,7 @@ static const struct { const char* name; const unsigned char* src; unsigned int l
     { "Augment.Standard", standard_luau,     standard_luau_len         }, // globals; class(), etc.
     { "Petrichor.Mod",    petrichor_mod_luau,   petrichor_mod_luau_len },
     { nullptr, nullptr, 0 }
-};
+}; // add to register_preludes func
 
 namespace {
 
@@ -48,6 +48,9 @@ const PetrichorHost* s_host   = nullptr;
 lua_State*           s_L      = nullptr;
 void**               s_cur_args = nullptr;
 void*                s_cur_ret  = nullptr;
+
+using ModuleFactory = int(*)(lua_State*);
+std::unordered_map<std::string, ModuleFactory> s_module_registry;
 
 template<typename Fn>
 static bool luau_protected(const char* ctx, Fn&& fn) {
@@ -474,14 +477,16 @@ int l_require(lua_State* L) {
             free(bytecode);
             if (rc != LUA_OK) luaL_error(L, "prelude compile '%s': %s", name, lua_tostring(L, -1));
             if (lua_pcall(L, 0, 1, 0) != LUA_OK) luaL_error(L, "prelude load '%s': %s", name, lua_tostring(L, -1));
-            goto cache_and_return;
+            lua_pushvalue(L, -1);
+            lua_setfield(L, -3, name);
+            return 1;
         }
     }
 
-    if      (strcmp(name, "Augment.Native") == 0) l_require_native(L);
-    else if (strcmp(name, "Augment.Mixin")  == 0) l_require_mixin(L);
-    else if (strcmp(name, "Petrichor.Log")  == 0) l_require_log(L);
-    else {
+    auto it = s_module_registry.find(name);
+    if (it != s_module_registry.end()) {
+        it->second(L);
+    } else {
         std::string rel;
         for (const char* p = name; *p; p++) rel += (*p == '.') ? '/' : *p;
         rel += ".luau";
@@ -508,7 +513,6 @@ int l_require(lua_State* L) {
         if (lua_pcall(L, 0, 1, 0) != LUA_OK) luaL_error(L, "load '%s': %s", name, lua_tostring(L, -1));
     }
 
-cache_and_return:
     lua_pushvalue(L, -1);
     lua_setfield(L, -3, name);
     return 1;
@@ -517,6 +521,10 @@ cache_and_return:
 } // namespace
 
 namespace petrichor {
+
+void luau_register_module(const char* name, ModuleFactory factory) {
+    if (name && factory) s_module_registry[name] = factory;
+}
 
 bool luau_boot(const PetrichorHost* host) {
     s_host = host;
@@ -530,6 +538,11 @@ bool luau_boot(const PetrichorHost* host) {
 
     lua_pushcfunction(s_L, l_require, "require");
     lua_setglobal(s_L, "require");
+
+    // registry must be populated before preludes run since they require these
+    s_module_registry["Augment.Native"] = l_require_native;
+    s_module_registry["Augment.Mixin"]  = l_require_mixin;
+    s_module_registry["Petrichor.Log"]  = l_require_log;
 
     for (auto* e = s_prelude_libs; e->name; e++)
         run_prelude(s_L, e->name, e->src, e->len);
