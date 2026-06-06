@@ -371,13 +371,34 @@ int l_n_register(lua_State* L) {
 }
 
 static void run_prelude(lua_State* L, const char* name, const unsigned char* src, unsigned int len) {
+    lua_getfield(L, LUA_REGISTRYINDEX, "_petrichor_modcache");
+    if (!lua_istable(L, -1)) {
+        lua_pop(L, 1);
+        lua_newtable(L);
+        lua_pushvalue(L, -1);
+        lua_setfield(L, LUA_REGISTRYINDEX, "_petrichor_modcache");
+    }
+    int cache_idx = lua_gettop(L);
+
     size_t bc = 0;
     char* bytecode = luau_compile((const char*)src, len, nullptr, &bc);
     int rc = luau_load(L, name, bytecode, bc, 0);
     free(bytecode);
-    if (rc != LUA_OK) { petrichor::plog("luau", "prelude compile '%s': %s", name, lua_tostring(L, -1)); lua_pop(L, 1); return; }
-    if (lua_pcall(L, 0, 1, 0) != LUA_OK) { petrichor::plog("luau", "prelude load '%s': %s", name, lua_tostring(L, -1)); lua_pop(L, 1); }
-    else lua_pop(L, 1);
+
+    if (rc != LUA_OK) {
+        petrichor::plog("luau", "prelude compile '%s': %s", name, lua_tostring(L, -1));
+        lua_pop(L, 2);
+        return;
+    }
+    if (lua_pcall(L, 0, 1, 0) != LUA_OK) {
+        petrichor::plog("luau", "prelude load '%s': %s", name, lua_tostring(L, -1));
+        lua_pop(L, 2);
+        return;
+    }
+
+    lua_pushvalue(L, -1);
+    lua_setfield(L, cache_idx, name);
+    lua_pop(L, 2);
 }
 
 int l_require_native(lua_State* L) {
