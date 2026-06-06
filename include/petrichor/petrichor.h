@@ -78,4 +78,10 @@ void petrichor_stop(const PetrichorHost* host);
 
 #ifdef __cplusplus
 }
+
+struct lua_State;
+namespace petrichor {
+    using ModuleFactory = int(*)(lua_State*);
+    void luau_register_module(const char* name, ModuleFactory factory);
+}
 #endif

@@ -539,7 +539,6 @@ bool luau_boot(const PetrichorHost* host) {
     lua_pushcfunction(s_L, l_require, "require");
     lua_setglobal(s_L, "require");
 
-    // registry must be populated before preludes run since they require these
     s_module_registry["Augment.Native"] = l_require_native;
     s_module_registry["Augment.Mixin"]  = l_require_mixin;
     s_module_registry["Petrichor.Log"]  = l_require_log;
