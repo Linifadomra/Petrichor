@@ -49,6 +49,19 @@ lua_State*           s_L      = nullptr;
 void**               s_cur_args = nullptr;
 void*                s_cur_ret  = nullptr;
 
+template<typename Fn>
+static bool luau_protected(const char* ctx, Fn&& fn) {
+    try {
+        fn();
+        return true;
+    } catch (const std::exception& e) {
+        petrichor::plog("luau", "exception in %s: %s", ctx, e.what());
+    } catch (...) {
+        petrichor::plog("luau", "unknown exception in %s", ctx);
+    }
+    return false;
+}
+
 void mem_push(lua_State* L, const char* kind, void* p) {
     if      (strcmp(kind, "u8")  == 0) lua_pushnumber(L, *(uint8_t*)p);
     else if (strcmp(kind, "i8")  == 0) lua_pushnumber(L, *(int8_t*)p);
@@ -104,16 +117,16 @@ void fire_hook(PetrichorMixinCtx* ctx, int ref) {
 
     HookContextGuard guard(s_cur_args, s_cur_ret, ctx->args, ctx->ret);
 
-    if (lua_pcall(L, 1, 1, 0) != LUA_OK) {
-        const char* err = lua_tostring(L, -1);
-        s_host->log("luau", err ? err : "hook error");
-        lua_pop(L, 1);
-    } else {
-        if (!lua_isnil(L, -1)) ctx->cancelled = (uint8_t)lua_toboolean(L, -1);
-        lua_pop(L, 1);
-    }
-    // guard destructor restores s_cur_args and s_cur_ret here,
-    // even if lua_pcall throws
+    luau_protected("fire_hook", [&] {
+        if (lua_pcall(L, 1, 1, 0) != LUA_OK) {
+            const char* err = lua_tostring(L, -1);
+            s_host->log("luau", err ? err : "hook error");
+            lua_pop(L, 1);
+        } else {
+            if (!lua_isnil(L, -1)) ctx->cancelled = (uint8_t)lua_toboolean(L, -1);
+            lua_pop(L, 1);
+        }
+    });
 }
 
 int l_mixin_register(lua_State* L) {
@@ -581,31 +594,35 @@ bool luau_loadMod(const char* dir, const char* id, const char* type, const char*
 void luau_tick(float delta) {
     if (!s_L) return;
     for (auto& mod : s_mods) {
-        lua_rawgeti(s_L, LUA_REGISTRYINDEX, mod.ref);
-        lua_getfield(s_L, -1, "tick");
-        lua_pushvalue(s_L, -2);
-        lua_pushnumber(s_L, delta);
-        if (lua_pcall(s_L, 2, 0, 0) != LUA_OK) {
-            plog("luau", "tick error in %s: %s",
-                mod.id.c_str(), lua_tostring(s_L, -1));
+        luau_protected(mod.id.c_str(), [&] {
+            lua_rawgeti(s_L, LUA_REGISTRYINDEX, mod.ref);
+            lua_getfield(s_L, -1, "tick");
+            lua_pushvalue(s_L, -2);
+            lua_pushnumber(s_L, delta);
+            if (lua_pcall(s_L, 2, 0, 0) != LUA_OK) {
+                plog("luau", "tick error in %s: %s",
+                    mod.id.c_str(), lua_tostring(s_L, -1));
+                lua_pop(s_L, 1);
+            }
             lua_pop(s_L, 1);
-        }
-        lua_pop(s_L, 1);
+        });
     }
 }
 
 void luau_stop() {
     if (!s_L) return;
     for (auto& mod : s_mods) {
-        lua_rawgeti(s_L, LUA_REGISTRYINDEX, mod.ref);
-        lua_getfield(s_L, -1, "shutdown");
-        lua_pushvalue(s_L, -2);
-        if (lua_pcall(s_L, 1, 0, 0) != LUA_OK) {
-            plog("luau", "shutdown error in %s: %s",
-                 mod.id.c_str(), lua_tostring(s_L, -1));
+        luau_protected(mod.id.c_str(), [&] {
+            lua_rawgeti(s_L, LUA_REGISTRYINDEX, mod.ref);
+            lua_getfield(s_L, -1, "shutdown");
+            lua_pushvalue(s_L, -2);
+            if (lua_pcall(s_L, 1, 0, 0) != LUA_OK) {
+                plog("luau", "shutdown error in %s: %s",
+                     mod.id.c_str(), lua_tostring(s_L, -1));
+                lua_pop(s_L, 1);
+            }
             lua_pop(s_L, 1);
-        }
-        lua_pop(s_L, 1);
+        });
         lua_unref(s_L, mod.ref);
     }
     s_mods.clear();
