@@ -15,6 +15,9 @@
 #include "prelude_standard_inc.h"
 #include "prelude_petrichor_mod_inc.h"
 
+#include "prelude_async_inc.h"
+#include "backends/luau/luau_async.hpp"
+
 static const struct { const char* name; const unsigned char* src; unsigned int len; } s_prelude_libs[] = {
     { "Augment.Hook",     hook_runtime_luau, hook_runtime_luau_len     },
     { "Petrichor.Standard", standard_luau,     standard_luau_len         }, // globals; class(), etc.
@@ -48,6 +51,9 @@ IPetrichorHost* s_host = nullptr;
 lua_State*           s_L      = nullptr;
 void**               s_cur_args = nullptr;
 void*                s_cur_ret  = nullptr;
+
+struct LuauModInstance { std::string id; int ref; };
+static std::vector<LuauModInstance> s_mods;
 
 using ModuleFactory = int(*)(lua_State*);
 std::unordered_map<std::string, ModuleFactory> s_module_registry;
@@ -232,6 +238,42 @@ int l_mixin_cstr(lua_State* L) {
     memcpy(buf, s, n); buf[n] = 0;
     lua_pushlightuserdata(L, buf);
     return 1;
+}
+
+/* ASYNC */
+
+int l_async_defer(lua_State* L) {
+    luaL_checktype(L, 1, LUA_TFUNCTION);
+    int ref = lua_ref(L, 1);
+    petrichor::async::schedule_step(ref);
+    return 0;
+}
+
+int l_async_timer(lua_State* L) {
+    float secs = (float)luaL_checknumber(L, 1);
+    luaL_checktype(L, 2, LUA_TFUNCTION);
+    petrichor::async::schedule_timer(secs, lua_ref(L, 2));
+    return 0;
+}
+
+int l_async_hook(lua_State* L) {
+    const char* sym   = resolveName(luaL_checkstring(L, 1));
+    const char* phase = luaL_checkstring(L, 2);
+    luaL_checktype(L, 3, LUA_TFUNCTION);
+    int step_ref = lua_ref(L, 3);
+
+    auto cb = +[](void* vctx, void* mc) {
+        petrichor::async::schedule_hook_ctx(
+            (int)(intptr_t)mc,
+            static_cast<PetrichorMixinCtx*>(vctx)
+        );
+    };
+
+    if (!s_host || !s_host->mixin()) return 0;
+    if      (!strcmp(phase, "before"))  s_host->mixin()->before (sym, cb, (void*)(intptr_t)step_ref, 0, nullptr);
+    else if (!strcmp(phase, "after"))   s_host->mixin()->after  (sym, cb, (void*)(intptr_t)step_ref, 0, nullptr);
+    else if (!strcmp(phase, "replace")) s_host->mixin()->replace(sym, cb, (void*)(intptr_t)step_ref, 0, nullptr);
+    return 0;
 }
 
 int l_log_level(lua_State* L, const char* level) {
@@ -456,6 +498,29 @@ int l_require_log(lua_State* L) {
     return 1;
 }
 
+int l_require_petrichor_async(lua_State* L) {
+    lua_newtable(L);
+    auto set = [&](const char* k, lua_CFunction f) {
+        lua_pushcfunction(L, f, k); lua_setfield(L, -2, k);
+    };
+    set("defer", l_async_defer);
+    set("timer", l_async_timer);
+    set("hook",  l_async_hook);
+
+    size_t bc = 0;
+    char* bytecode = luau_compile(
+        (const char*)petrichor_async_luau,
+        petrichor_async_luau_len, nullptr, &bc);
+    int rc = luau_load(L, "Petrichor.Async", bytecode, bc, 0);
+    free(bytecode);
+    if (rc != LUA_OK) luaL_error(L, "Petrichor.Async: %s", lua_tostring(L, -1));
+
+    lua_insert(L, -2);
+    if (lua_pcall(L, 1, 1, 0) != LUA_OK)
+        luaL_error(L, "Petrichor.Async: %s", lua_tostring(L, -1));
+    return 1;
+}
+
 std::vector<std::string> s_mod_dirs;
 
 int l_require(lua_State* L) {
@@ -543,6 +608,7 @@ bool luau_boot(IPetrichorHost& host) {
     s_module_registry["Augment.Native"] = l_require_native;
     s_module_registry["Augment.Mixin"]  = l_require_mixin;
     s_module_registry["Petrichor.Log"]  = l_require_log;
+    s_module_registry["Petrichor.Async"] = l_require_petrichor_async;
 
     for (auto* e = s_prelude_libs; e->name; e++)
         run_prelude(s_L, e->name, e->src, e->len);
@@ -627,6 +693,7 @@ bool luau_loadMod(const char* dir, const char* id, const char* type, const char*
 
 void luau_tick(float delta) {
     if (!s_L) return;
+    petrichor::async::tick(s_L, delta);
     for (auto& mod : s_mods) {
         luau_protected(mod.id.c_str(), [&] {
             lua_rawgeti(s_L, LUA_REGISTRYINDEX, mod.ref);
@@ -660,6 +727,7 @@ void luau_stop() {
         lua_unref(s_L, mod.ref);
     }
     s_mods.clear();
+    petrichor::async::stop(s_L);
     lua_close(s_L);
     s_L = nullptr;
     s_host = nullptr;

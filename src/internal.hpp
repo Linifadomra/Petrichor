@@ -32,15 +32,15 @@ namespace plat {
 using ModuleFactory = int(*)(lua_State*);
 void luau_register_module(const char* name, ModuleFactory factory);
 
-struct LuauModInstance { std::string id; int ref; };
-static std::vector<LuauModInstance> s_mods;
-
 bool luau_boot(IPetrichorHost& host);
 bool luau_loadMod(const char* dir, const char* id, const char* type, const char* entry);
-void luau_stop();
 void luau_tick(float delta);
+void luau_stop();
 
 void luau_backend_register();
 void native_backend_register();
+
+void async_schedule_step(int step_ref, std::vector<double> results = {});
+void async_schedule_step_str(int step_ref, std::string result);
 
 } // namespace petrichor

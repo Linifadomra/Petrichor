@@ -63,6 +63,7 @@ struct PetrichorMixinCtx {
     uint8_t  cancelled;
     void*    user;
     void**   args;
+    int      arg_count;
 };
 typedef void (*PetrichorMixinFn)(PetrichorMixinCtx* ctx, void* modctx);
 
