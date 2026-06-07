@@ -1,5 +1,4 @@
 local Task = require("Petrichor.Task")
-local Hook  = require("Augment.Hook")
 
 local Timer = {}
 
@@ -73,89 +72,6 @@ function Timer.after_then_every(seconds, interval, fn)
         end
         release(h)
     end)()
-    return h
-end
-
--- Frame timers 
-
-local frame_timers = {}
-local frame_hook_registered = false
-
-local function ensure_frame_hook()
-    if frame_hook_registered then return end
-    frame_hook_registered = true
-    Hook.fapGm_Execute:after(function()
-        local i = 1
-        while i <= #frame_timers do
-            local t = frame_timers[i]
-            if t.handle:is_cancelled() then
-                release(t.handle)
-                table.remove(frame_timers, i)
-            else
-                t.elapsed = t.elapsed + 1
-                if t.elapsed >= t.interval then
-                    t.elapsed = 0
-                    t.fn(t.handle)
-                    if t.once or t.handle:is_cancelled() then
-                        release(t.handle)
-                        table.remove(frame_timers, i)
-                    else
-                        i = i + 1
-                    end
-                else
-                    i = i + 1
-                end
-            end
-        end
-    end)
-end
-
-function Timer.after_frames(frames, fn)
-    ensure_frame_hook()
-    local h = new_handle()
-    frame_timers[#frame_timers + 1] = {
-        handle   = h,
-        interval = frames,
-        elapsed  = 0,
-        fn       = fn,
-        once     = true,
-    }
-    return h
-end
-
-function Timer.every_frames(frames, fn)
-    ensure_frame_hook()
-    local h = new_handle()
-    frame_timers[#frame_timers + 1] = {
-        handle   = h,
-        interval = frames,
-        elapsed  = 0,
-        fn       = fn,
-        once     = false,
-    }
-    return h
-end
-
-function Timer.after_frames_then_every(delay, interval, fn)
-    ensure_frame_hook()
-    local h = new_handle()
-    frame_timers[#frame_timers + 1] = {
-        handle   = h,
-        interval = delay,
-        elapsed  = 0,
-        once     = true,
-        fn       = function()
-            if h:is_cancelled() then return end
-            fn(h)
-            frame_timers[#frame_timers + 1] = {
-                handle   = h,
-                interval = interval,
-                elapsed  = 0,
-                fn       = fn,
-                once     = false,
-            }
-        end,
-    }
     return h
 end
 
