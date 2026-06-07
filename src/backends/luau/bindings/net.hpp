@@ -4,6 +4,6 @@
 namespace petrichor::net {
     void boot();
     void stop();
-    int  require(lua_State* L);
     void tick(lua_State* L);
+    int  require_module(lua_State* L);
 }

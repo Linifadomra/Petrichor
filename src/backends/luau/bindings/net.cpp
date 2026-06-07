@@ -1,7 +1,10 @@
 #include "net.hpp"
 #include "async.hpp"
 #include "internal.hpp"
+#include "luacode.h"
 #include "lualib.h"
+
+#include "prelude_net_inc.h"
 
 #if defined(_WIN32)
   #include <winsock2.h>
@@ -26,28 +29,22 @@
   using sock_t = SOCKET;
   static constexpr sock_t INVALID = INVALID_SOCKET;
   static void sock_close(sock_t s) { closesocket(s); }
-  static void sock_nonblock(sock_t s) {
-      u_long m = 1; ioctlsocket(s, FIONBIO, &m);
-  }
 #else
   using sock_t = int;
   static constexpr sock_t INVALID = -1;
   static void sock_close(sock_t s) { ::close(s); }
-  static void sock_nonblock(sock_t s) {
-      int f = fcntl(s, F_GETFL, 0);
-      fcntl(s, F_SETFL, f | O_NONBLOCK);
-  }
 #endif
 
 namespace {
 
-// --- pending connect/recv completions fed back to the Lua scheduler ---
+enum class NetKind { Connect, Recv };
 
 struct NetResult {
     int         step_ref;
     bool        ok;
-    sock_t      sock;       // for connect results
-    std::string data;       // for recv results
+    NetKind     kind;
+    sock_t      sock; // for connect
+    std::string data; // for rcv
     std::string err;
 };
 
@@ -92,27 +89,26 @@ int l_net_connect(lua_State* L) {
         snprintf(port_str, sizeof(port_str), "%d", port);
 
         if (getaddrinfo(h.c_str(), port_str, &hints, &res) != 0 || !res) {
-            push_result({ step_ref, false, INVALID, {}, "getaddrinfo failed" });
+            push_result({ step_ref, false, NetKind::Connect, INVALID, {}, "getaddrinfo failed" });
             return;
         }
 
         sock_t fd = ::socket(res->ai_family, res->ai_socktype, res->ai_protocol);
         if (fd == INVALID) {
             freeaddrinfo(res);
-            push_result({ step_ref, false, INVALID, {}, "socket() failed" });
+            push_result({ step_ref, false, NetKind::Connect, INVALID, {}, "socket() failed" });
             return;
         }
 
         if (::connect(fd, res->ai_addr, (int)res->ai_addrlen) != 0) {
             freeaddrinfo(res);
             sock_close(fd);
-            push_result({ step_ref, false, INVALID, {}, "connect() failed" });
+            push_result({ step_ref, false, NetKind::Connect, INVALID, {}, "connect() failed" });
             return;
         }
 
         freeaddrinfo(res);
-        sock_nonblock(fd);
-        push_result({ step_ref, true, fd, {}, {} });
+        push_result({ step_ref, true, NetKind::Connect, fd, {}, {} });
     }).detach();
 
     return 0;
@@ -129,10 +125,10 @@ int l_net_recv(lua_State* L) {
         std::string buf(max, '\0');
         int n = (int)::recv(fd, &buf[0], max, 0);
         if (n <= 0) {
-            push_result({ step_ref, false, INVALID, {}, "recv() failed or closed" });
+            push_result({ step_ref, false, NetKind::Recv, INVALID, {}, "recv() failed or closed" });
         } else {
             buf.resize(n);
-            push_result({ step_ref, true, INVALID, std::move(buf), {} });
+            push_result({ step_ref, true, NetKind::Recv, INVALID, std::move(buf), {} });
         }
     }).detach();
 
@@ -176,11 +172,14 @@ void tick(lua_State* L) {
         std::lock_guard<std::mutex> lk(s_results_mutex);
         batch.swap(s_results);
     }
+
     for (auto& r : batch) {
         lua_rawgeti(L, LUA_REGISTRYINDEX, r.step_ref);
 
-        if (r.ok && r.sock != INVALID) {
-            // connect result — push socket userdata
+        if (!r.ok) {
+            lua_pushnil(L);
+            lua_pushstring(L, r.err.c_str());
+        } else if (r.kind == NetKind::Connect) {
             SockUd* ud = (SockUd*)lua_newuserdatadtor(L, sizeof(SockUd),
                 [](void* p) {
                     auto* s = static_cast<SockUd*>(p);
@@ -192,15 +191,10 @@ void tick(lua_State* L) {
                 lua_setfield(L, -2, "__gc");
             }
             lua_setmetatable(L, -2);
-            lua_pushnil(L);  // no error
-        } else if (r.ok && !r.data.empty()) {
-            // recv result
             lua_pushnil(L);
-            lua_pushlstring(L, r.data.c_str(), r.data.size());
         } else {
-            // error
+            lua_pushlstring(L, r.data.c_str(), r.data.size());
             lua_pushnil(L);
-            lua_pushstring(L, r.err.c_str());
         }
 
         if (lua_pcall(L, 2, 0, 0) != LUA_OK) {
@@ -211,7 +205,7 @@ void tick(lua_State* L) {
     }
 }
 
-int require(lua_State* L) {
+int require_module(lua_State* L) {
     lua_newtable(L);
     auto set = [&](const char* k, lua_CFunction f) {
         lua_pushcfunction(L, f, k); lua_setfield(L, -2, k);
@@ -220,6 +214,18 @@ int require(lua_State* L) {
     set("recv",    l_net_recv);
     set("send",    l_net_send);
     set("close",   l_net_close);
+
+    size_t bc = 0;
+    char* bytecode = luau_compile(
+        (const char*)net_luau,
+        net_luau_len, nullptr, &bc);
+    int rc = luau_load(L, "Petrichor.Net", bytecode, bc, 0);
+    free(bytecode);
+    if (rc != LUA_OK) luaL_error(L, "Petrichor.Net: %s", lua_tostring(L, -1));
+
+    lua_insert(L, -2);
+    if (lua_pcall(L, 1, 1, 0) != LUA_OK)
+        luaL_error(L, "Petrichor.Net: %s", lua_tostring(L, -1));
     return 1;
 }
 

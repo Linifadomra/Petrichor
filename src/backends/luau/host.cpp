@@ -1,5 +1,13 @@
-#include "backends/luau/bindings/net.hpp"
 #include "internal.hpp"
+
+#include "prelude_hook_runtime_inc.h"
+#include "prelude_standard_inc.h"
+#include "prelude_petrichor_mod_inc.h"
+#include "prelude_math_inc.h"
+
+#include "prelude_async_inc.h"
+#include "backends/luau/bindings/async.hpp"
+#include "backends/luau/bindings/net.hpp"
 
 #include <lua.h>
 #include <lualib.h>
@@ -11,13 +19,6 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
-
-#include "prelude_hook_runtime_inc.h"
-#include "prelude_standard_inc.h"
-#include "prelude_petrichor_mod_inc.h"
-
-#include "prelude_async_inc.h"
-#include "backends/luau/bindings/async.hpp"
 
 static const struct { const char* name; const unsigned char* src; unsigned int len; } s_prelude_libs[] = {
     { "Augment.Hook",     hook_runtime_luau, hook_runtime_luau_len     },
@@ -499,6 +500,19 @@ int l_require_log(lua_State* L) {
     return 1;
 }
 
+int l_require_math(lua_State* L) {
+    size_t bc = 0;
+    char* bytecode = luau_compile(
+        (const char*)math_luau,
+        math_luau_len, nullptr, &bc);
+    int rc = luau_load(L, "Petrichor.Math", bytecode, bc, 0);
+    free(bytecode);
+    if (rc != LUA_OK) luaL_error(L, "Petrichor.Math: %s", lua_tostring(L, -1));
+    if (lua_pcall(L, 0, 1, 0) != LUA_OK)
+        luaL_error(L, "Petrichor.Math: %s", lua_tostring(L, -1));
+    return 1;
+}
+
 int l_require_petrichor_async(lua_State* L) {
     lua_newtable(L);
     auto set = [&](const char* k, lua_CFunction f) {
@@ -609,8 +623,9 @@ bool luau_boot(IPetrichorHost& host) {
     s_module_registry["Augment.Native"] = l_require_native;
     s_module_registry["Augment.Mixin"]  = l_require_mixin;
     s_module_registry["Petrichor.Log"]  = l_require_log;
+    s_module_registry["Petrichor.Math"] = l_require_math;
     s_module_registry["Petrichor.Async"] = l_require_petrichor_async;
-    s_module_registry["Petrichor.Net"] = petrichor::net::require;
+    s_module_registry["Petrichor.Net"] = petrichor::net::require_module;
     petrichor::net::boot();
 
     for (auto* e = s_prelude_libs; e->name; e++)
