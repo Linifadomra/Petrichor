@@ -39,7 +39,7 @@ Timer.Handle = Handle
 function Timer.after(seconds, fn)
     local h = new_handle()
     Task.async(function()
-        Task.await(Task.sleep(seconds))
+        Task.sleep(seconds)
         if not h:is_cancelled() then fn(h) end
         release(h)
     end)()
@@ -62,7 +62,7 @@ end
 function Timer.after_then_every(seconds, interval, fn)
     local h = new_handle()
     Task.async(function()
-        Task.await(Task.wait_for(seconds))
+        Task.sleep(seconds)
         if h:is_cancelled() then release(h) return end
         fn(h)
         while not h:is_cancelled() do
