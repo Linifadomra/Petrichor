@@ -16,25 +16,8 @@ target_include_directories(petrichor
 
 add_subdirectory(vendor/luau)
 
-file(GLOB PRELUDE_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/backends/luau/lib/*.luau")
-
-find_package(Python3 REQUIRED)
-
-set(PRELUDE_HEADERS "")
-foreach(SRC ${PRELUDE_SOURCES})
-    get_filename_component(NAME ${SRC} NAME_WE)
-    set(OUT ${CMAKE_CURRENT_BINARY_DIR}/prelude_${NAME}_inc.h)
-    list(APPEND PRELUDE_HEADERS ${OUT})
-endforeach()
-
-add_custom_target(petrichor_preludes
-    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/bin2h.py
-            ${PRELUDE_SOURCES} ${CMAKE_CURRENT_BINARY_DIR} luau
-    DEPENDS ${PRELUDE_SOURCES} ${CMAKE_CURRENT_SOURCE_DIR}/tools/bin2h.py
-)
-
-add_dependencies(petrichor petrichor_preludes)
-target_include_directories(petrichor PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_luau.cmake)
+petrichor_embed_luau(petrichor ${CMAKE_CURRENT_SOURCE_DIR}/src/backends/luau/lib)
 
 target_sources(petrichor PRIVATE
     src/backends/luau/host.cpp

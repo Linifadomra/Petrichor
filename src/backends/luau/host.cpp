@@ -1,5 +1,5 @@
-#include "backends/luau/bindings/storage.hpp"
 #include "internal.hpp"
+#include "petrichor/luau.h"
 
 #include "prelude_hook_runtime_inc.h"
 #include "prelude_standard_inc.h"
@@ -12,6 +12,7 @@
 #include "prelude_async_inc.h"
 #include "backends/luau/bindings/async.hpp"
 #include "backends/luau/bindings/net.hpp"
+#include "backends/luau/bindings/storage.hpp"
 
 #include <lua.h>
 #include <lualib.h>
@@ -271,6 +272,24 @@ int l_mixin_cstr(lua_State* L) {
     return 1;
 }
 
+bool petrichor::luau_load_module(lua_State* L, const char* name, const unsigned char* src, unsigned int len) {
+    size_t bc = 0;
+    char* bytecode = luau_compile((const char*)src, len, nullptr, &bc);
+    int rc = luau_load(L, name, bytecode, bc, 0);
+    free(bytecode);
+    if (rc != LUA_OK) {
+        plog("luau", "compile error in '%s': %s", name, lua_tostring(L, -1));
+        lua_pop(L, 1);
+        return false;
+    }
+    if (lua_pcall(L, 0, 1, 0) != LUA_OK) {
+        plog("luau", "load error in '%s': %s", name, lua_tostring(L, -1));
+        lua_pop(L, 1);
+        return false;
+    }
+    return true;
+}
+
 /* ASYNC */
 
 int l_async_defer(lua_State* L) {
@@ -450,8 +469,6 @@ int l_n_register(lua_State* L) {
 }
 
 static void run_prelude(lua_State* L, const char* name, const unsigned char* src, unsigned int len) {
-    int msgh = push_msgh(L);
-
     lua_getfield(L, LUA_REGISTRYINDEX, "_petrichor_modcache");
     if (!lua_istable(L, -1)) {
         lua_pop(L, 1);
@@ -460,27 +477,13 @@ static void run_prelude(lua_State* L, const char* name, const unsigned char* src
         lua_setfield(L, LUA_REGISTRYINDEX, "_petrichor_modcache");
     }
     int cache_idx = lua_gettop(L);
-
-    size_t bc = 0;
-    char* bytecode = luau_compile((const char*)src, len, nullptr, &bc);
-    int rc = luau_load(L, name, bytecode, bc, 0);
-    free(bytecode);
-
-    if (rc != LUA_OK) {
-        petrichor::plog("luau", "prelude compile '%s': %s", name, lua_tostring(L, -1));
-        lua_pop(L, 3);
+    if (!petrichor::luau_load_module(L, name, src, len)) {
+        lua_pop(L, 1);
         return;
     }
-
-    if (lua_pcall(L, 0, 1, msgh) != LUA_OK) {
-        petrichor::plog("luau", "prelude load '%s': %s", name, lua_tostring(L, -1));
-        lua_pop(L, 3);
-        return;
-    }
-
     lua_pushvalue(L, -1);
     lua_setfield(L, cache_idx, name);
-    lua_pop(L, 3);
+    lua_pop(L, 2);
 }
 
 int l_require_native(lua_State* L) {
@@ -533,18 +536,8 @@ int l_require_log(lua_State* L) {
 }
 
 static int l_require_lua_chunk(lua_State* L, const char* name, const unsigned char* src, unsigned int len) {
-    int msgh = push_msgh(L);
-
-    size_t bc = 0;
-    char* bytecode = luau_compile((const char*)src, len, nullptr, &bc);
-    int rc = luau_load(L, name, bytecode, bc, 0);
-    free(bytecode);
-    if (rc != LUA_OK) luaL_error(L, "%s: %s", name, lua_tostring(L, -1));
-
-    if (lua_pcall(L, 0, 1, msgh) != LUA_OK)
-        luaL_error(L, "%s: %s", name, lua_tostring(L, -1));
-
-    lua_remove(L, msgh);
+    if (!petrichor::luau_load_module(L, name, src, len))
+        luaL_error(L, "%s: failed to load", name);
     return 1;
 }
 
