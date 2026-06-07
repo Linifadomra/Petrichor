@@ -30,6 +30,12 @@ function Mod:replace(sym, fn, priority)
     end, priority or 0)
 end
 
+-- storage helper: internally calls Petrichor.Storage save
+function Mod:save()
+    local ok, Storage = pcall(require, "Petrichor.Storage")
+    if ok and Storage then Storage.save() end
+end
+
 -- read/write typed fields on a ctx.self pointer
 -- without needing to know offsets manually
 function Mod:field(ptr, offset, kind)

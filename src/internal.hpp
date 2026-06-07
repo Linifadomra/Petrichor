@@ -33,7 +33,7 @@ using ModuleFactory = int(*)(lua_State*);
 void luau_register_module(const char* name, ModuleFactory factory);
 
 bool luau_boot(IPetrichorHost& host);
-bool luau_loadMod(const char* dir, const char* id, const char* type, const char* entry);
+bool luau_loadMod(const char* dir, const char* id, const char* type, const char* entry, const char* store_root);
 void luau_tick(float delta);
 void luau_stop();
 

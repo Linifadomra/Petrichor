@@ -39,8 +39,10 @@ target_include_directories(petrichor PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 target_sources(petrichor PRIVATE
     src/backends/luau/host.cpp
     src/backends/luau/backend.cpp
+
     src/backends/luau/bindings/async.cpp
     src/backends/luau/bindings/net.cpp
+    src/backends/luau/bindings/storage.cpp
 )
 target_link_libraries(petrichor PRIVATE Luau.VM Luau.Compiler)
 target_include_directories(petrichor PRIVATE vendor/luau/VM/include vendor/luau/Compiler/include)

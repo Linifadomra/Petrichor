@@ -1,3 +1,4 @@
+#include "backends/luau/bindings/storage.hpp"
 #include "internal.hpp"
 
 #include "prelude_hook_runtime_inc.h"
@@ -58,7 +59,7 @@ lua_State*           s_L      = nullptr;
 void**               s_cur_args = nullptr;
 void*                s_cur_ret  = nullptr;
 
-struct LuauModInstance { std::string id; int ref; };
+struct LuauModInstance { std::string id; int ref; std::string mod_dir; std::string store_root; bool dirty; };
 static std::vector<LuauModInstance> s_mods;
 
 using ModuleFactory = int(*)(lua_State*);
@@ -664,14 +665,14 @@ bool luau_boot(IPetrichorHost& host) {
     lua_pushcfunction(s_L, l_require, "require");
     lua_setglobal(s_L, "require");
 
-    s_module_registry["Augment.Native"] = l_require_native;
-    s_module_registry["Augment.Mixin"]  = l_require_mixin;
+    s_module_registry["Augment.Native"]    = l_require_native;
+    s_module_registry["Augment.Mixin"]     = l_require_mixin;
     
-    s_module_registry["Petrichor.Log"]  = l_require_log;
-    s_module_registry["Petrichor.Task"] = l_require_petrichor_async;
-    s_module_registry["Petrichor.Timer"] = l_require_timer;
+    s_module_registry["Petrichor.Log"]     = l_require_log;
+    s_module_registry["Petrichor.Task"]    = l_require_petrichor_async;
+    s_module_registry["Petrichor.Timer"]   = l_require_timer;
 
-    s_module_registry["Petrichor.Net"] = petrichor::net::require_module;
+    s_module_registry["Petrichor.Net"]     = petrichor::net::require_module;
     petrichor::net::boot();
 
     for (auto* e = s_prelude_libs; e->name; e++)
@@ -681,7 +682,7 @@ bool luau_boot(IPetrichorHost& host) {
     return true;
 }
 
-bool luau_loadMod(const char* dir, const char* id, const char* type, const char* entry) {
+bool luau_loadMod(const char* dir, const char* id, const char* type, const char* entry, const char* store_root) {
     if (!s_L) return false;
 
     const int base = lua_gettop(s_L);
@@ -702,6 +703,19 @@ bool luau_loadMod(const char* dir, const char* id, const char* type, const char*
     fclose(f);
 
     int msgh = push_msgh(s_L);
+
+    {
+        lua_getfield(s_L, LUA_REGISTRYINDEX, "_petrichor_modcache");
+        if (!lua_istable(s_L, -1)) {
+            lua_pop(s_L, 1);
+            lua_newtable(s_L);
+            lua_pushvalue(s_L, -1);
+            lua_setfield(s_L, LUA_REGISTRYINDEX, "_petrichor_modcache");
+        }
+        petrichor::storage::require_module(s_L, std::string(id), std::string(dir), store_root ? std::string(store_root) : "");
+        lua_setfield(s_L, -2, "Petrichor.Storage");
+        lua_pop(s_L, 1);
+    }
 
     size_t bytecodeSize = 0;
     char* bytecode = luau_compile(src.c_str(), src.size(), nullptr, &bytecodeSize);
@@ -758,7 +772,7 @@ bool luau_loadMod(const char* dir, const char* id, const char* type, const char*
     int ref = lua_ref(s_L, -1);
     lua_pop(s_L, 1);
 
-    s_mods.push_back({ std::string(id), ref });
+    s_mods.push_back({ std::string(id), ref, std::string(dir), store_root ? std::string(store_root) : "", false });
     plog("luau", "loaded mod: %s", id);
     return true;
 }
@@ -788,6 +802,16 @@ void luau_stop() {
         luau_protected(mod.id.c_str(), [&] {
             lua_rawgeti(s_L, LUA_REGISTRYINDEX, mod.ref);
             int msgh = push_msgh(s_L);
+
+            lua_getfield(s_L, -2, "save");
+            if (lua_isfunction(s_L, -1)) {
+                lua_pushvalue(s_L, -3);
+                if (lua_pcall(s_L, 1, 0, msgh) != LUA_OK)
+                    lua_pop(s_L, 1);
+            } else {
+                lua_pop(s_L, 1);
+            }
+
             lua_getfield(s_L, -2, "shutdown");
             lua_pushvalue(s_L, -3);
             if (lua_pcall(s_L, 1, 0, msgh) != LUA_OK) {
