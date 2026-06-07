@@ -48,4 +48,24 @@ function Mod:setField(ptr, offset, kind, value)
     Mixin.write(ptr, offset, kind, value)
 end
 
+-- Mod Events --
+
+local Event = require("Petrichor.Events")
+
+function Mod:fire(event, data)
+    Event.fire(self.__name .. ":" .. event, data)
+end
+
+function Mod:on(event, mod_name, fn)
+    Event.on(mod_name .. ":" .. event, fn)
+end
+
+function Mod:once(event, mod_name, fn)
+    Event.once(mod_name .. ":" .. event, fn)
+end
+
+function Mod:off(event, mod_name, fn)
+    Event.off(mod_name .. ":" .. event, fn)
+end
+
 return Mod
