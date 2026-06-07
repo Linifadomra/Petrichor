@@ -37,7 +37,11 @@
 
 namespace {
 
-enum class NetKind { Connect, Recv };
+enum class NetKind { Connect, Recv, UdpRecv };
+
+struct UdpSockUd {
+    sock_t fd = INVALID;
+};
 
 struct NetResult {
     int         step_ref;
@@ -54,6 +58,101 @@ std::mutex             s_results_mutex;
 void push_result(NetResult r) {
     std::lock_guard<std::mutex> lk(s_results_mutex);
     s_results.push_back(std::move(r));
+}
+
+// --- udp ---
+UdpSockUd* check_udp_sock(lua_State* L, int idx) {
+    return (UdpSockUd*)luaL_checkudata(L, idx, "PetrichorUdpSocket");
+}
+
+int l_udp_sock_gc(lua_State* L) {
+    UdpSockUd* s = check_udp_sock(L, 1);
+    if (s->fd != INVALID) { sock_close(s->fd); s->fd = INVALID; }
+    return 0;
+}
+
+int l_net_udp_open(lua_State* L) {
+    sock_t fd = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (fd == INVALID) { lua_pushnil(L); lua_pushstring(L, "socket() failed"); return 2; }
+
+    UdpSockUd* ud = (UdpSockUd*)lua_newuserdatadtor(L, sizeof(UdpSockUd),
+        [](void* p) {
+            auto* s = static_cast<UdpSockUd*>(p);
+            if (s->fd != INVALID) sock_close(s->fd);
+        });
+    ud->fd = fd;
+    if (luaL_newmetatable(L, "PetrichorUdpSocket")) {
+        lua_pushcfunction(L, l_udp_sock_gc, "__gc");
+        lua_setfield(L, -2, "__gc");
+    }
+    lua_setmetatable(L, -2);
+    lua_pushnil(L);
+    return 2;
+}
+
+int l_net_udp_send(lua_State* L) {
+    UdpSockUd*  s    = check_udp_sock(L, 1);
+    const char* host = luaL_checkstring(L, 2);
+    int         port = (int)luaL_checkinteger(L, 3);
+    size_t      len  = 0;
+    const char* data = luaL_checklstring(L, 4, &len);
+
+    addrinfo hints{}, *res = nullptr;
+    hints.ai_family   = AF_INET;
+    hints.ai_socktype = SOCK_DGRAM;
+    char port_str[16];
+    snprintf(port_str, sizeof(port_str), "%d", port);
+    if (getaddrinfo(host, port_str, &hints, &res) != 0 || !res) {
+        lua_pushstring(L, "getaddrinfo failed"); return 1;
+    }
+    ::sendto(s->fd, data, (int)len, 0, res->ai_addr, (int)res->ai_addrlen);
+    freeaddrinfo(res);
+    lua_pushnil(L);
+    return 1;
+}
+
+int l_net_udp_recv(lua_State* L) {
+    UdpSockUd* s    = check_udp_sock(L, 1);
+    int        max  = (int)luaL_optinteger(L, 2, 4096);
+    luaL_checktype(L, 3, LUA_TFUNCTION);
+    int step_ref = lua_ref(L, 3);
+    sock_t fd = s->fd;
+
+    std::thread([fd, max, step_ref] {
+        std::string buf(max, '\0');
+        sockaddr_in from{};
+        socklen_t fromlen = sizeof(from);
+        int n = (int)::recvfrom(fd, &buf[0], max, 0, (sockaddr*)&from, &fromlen);
+        if (n <= 0) {
+            push_result({ step_ref, false, NetKind::UdpRecv, INVALID, {}, "recvfrom() failed" });
+        } else {
+            buf.resize(n);
+            push_result({ step_ref, true, NetKind::UdpRecv, INVALID, std::move(buf), {} });
+        }
+    }).detach();
+
+    return 0;
+}
+
+int l_net_udp_bind(lua_State* L) {
+    UdpSockUd* s    = check_udp_sock(L, 1);
+    int        port = (int)luaL_checkinteger(L, 2);
+
+    sockaddr_in addr{};
+    addr.sin_family      = AF_INET;
+    addr.sin_addr.s_addr = INADDR_ANY;
+    addr.sin_port        = htons((uint16_t)port);
+    if (::bind(s->fd, (sockaddr*)&addr, sizeof(addr)) != 0) {
+        lua_pushstring(L, "bind() failed"); return 1;
+    }
+    lua_pushnil(L);
+    return 1;
+}
+
+int l_net_udp_close(lua_State* L) {
+    UdpSockUd* s = check_udp_sock(L, 1);
+    if (s->fd != INVALID) { sock_close(s->fd); s->fd = INVALID; }
+    return 0;
 }
 
 // --- socket userdata ---
@@ -192,6 +291,9 @@ void tick(lua_State* L) {
             }
             lua_setmetatable(L, -2);
             lua_pushnil(L);
+        } else if (r.kind == NetKind::UdpRecv) {
+            lua_pushlstring(L, r.data.c_str(), r.data.size());
+            lua_pushnil(L);
         } else {
             lua_pushlstring(L, r.data.c_str(), r.data.size());
             lua_pushnil(L);
@@ -214,6 +316,12 @@ int require_module(lua_State* L) {
     set("recv",    l_net_recv);
     set("send",    l_net_send);
     set("close",   l_net_close);
+
+    set("udp_open",  l_net_udp_open);
+    set("udp_send",  l_net_udp_send);
+    set("udp_recv",  l_net_udp_recv);
+    set("udp_bind",  l_net_udp_bind);
+    set("udp_close", l_net_udp_close);
 
     size_t bc = 0;
     char* bytecode = luau_compile(
