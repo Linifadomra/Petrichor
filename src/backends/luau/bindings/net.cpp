@@ -47,8 +47,8 @@ struct NetResult {
     int         step_ref;
     bool        ok;
     NetKind     kind;
-    sock_t      sock; // for connect
-    std::string data; // for rcv
+    sock_t      sock;
+    std::string data;
     std::string err;
 };
 
@@ -60,7 +60,6 @@ void push_result(NetResult r) {
     s_results.push_back(std::move(r));
 }
 
-// --- udp ---
 UdpSockUd* check_udp_sock(lua_State* L, int idx) {
     return (UdpSockUd*)luaL_checkudata(L, idx, "PetrichorUdpSocket");
 }
@@ -134,6 +133,38 @@ int l_net_udp_recv(lua_State* L) {
     return 0;
 }
 
+int l_net_udp_recv_nonblock(lua_State* L) {
+    UdpSockUd* s   = check_udp_sock(L, 1);
+    int        max = (int)luaL_optinteger(L, 2, 4096);
+
+#ifdef _WIN32
+    u_long mode = 1;
+    ioctlsocket(s->fd, FIONBIO, &mode);
+#else
+    int flags = fcntl(s->fd, F_GETFL, 0);
+    fcntl(s->fd, F_SETFL, flags | O_NONBLOCK);
+#endif
+
+    lua_newtable(L);
+    int count = 0;
+    std::string buf(max, '\0');
+    while (true) {
+        int n = (int)::recvfrom(s->fd, &buf[0], max, 0, nullptr, nullptr);
+        if (n <= 0) break;
+        lua_pushlstring(L, buf.c_str(), (size_t)n);
+        lua_rawseti(L, -2, ++count);
+    }
+
+#ifdef _WIN32
+    mode = 0;
+    ioctlsocket(s->fd, FIONBIO, &mode);
+#else
+    fcntl(s->fd, F_SETFL, flags);
+#endif
+
+    return 1;
+}
+
 int l_net_udp_bind(lua_State* L) {
     UdpSockUd* s    = check_udp_sock(L, 1);
     int        port = (int)luaL_checkinteger(L, 2);
@@ -184,8 +215,6 @@ int l_net_udp_close(lua_State* L) {
     return 0;
 }
 
-// --- socket userdata ---
-
 struct SockUd {
     sock_t fd = INVALID;
 };
@@ -199,8 +228,6 @@ int l_sock_gc(lua_State* L) {
     if (s->fd != INVALID) { sock_close(s->fd); s->fd = INVALID; }
     return 0;
 }
-
-// --- Lua API ---
 
 int l_net_connect(lua_State* L) {
     const char* host = luaL_checkstring(L, 1);
@@ -277,7 +304,7 @@ int l_net_close(lua_State* L) {
     return 0;
 }
 
-} // namespace
+}
 
 namespace petrichor::net {
 
@@ -346,13 +373,14 @@ int require_module(lua_State* L) {
     set("send",    l_net_send);
     set("close",   l_net_close);
 
-    set("udp_open",      l_net_udp_open);
-    set("udp_send",      l_net_udp_send);
-    set("udp_connect",   l_net_udp_connect);
-    set("udp_send_data", l_net_udp_send_data);
-    set("udp_recv",      l_net_udp_recv);
-    set("udp_bind",      l_net_udp_bind);
-    set("udp_close",     l_net_udp_close);
+    set("udp_open",             l_net_udp_open);
+    set("udp_send",             l_net_udp_send);
+    set("udp_connect",          l_net_udp_connect);
+    set("udp_send_data",        l_net_udp_send_data);
+    set("udp_recv",             l_net_udp_recv);
+    set("udp_recv_nonblock",    l_net_udp_recv_nonblock);
+    set("udp_bind",             l_net_udp_bind);
+    set("udp_close",            l_net_udp_close);
 
     size_t bc = 0;
     char* bytecode = luau_compile(
@@ -368,4 +396,4 @@ int require_module(lua_State* L) {
     return 1;
 }
 
-} // namespace petrichor::net
+}

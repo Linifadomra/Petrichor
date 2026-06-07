@@ -45,6 +45,9 @@ end
 local udp_send_data = function(sock, data)
     return _net.udp_send_data(sock, data)
 end
+local udp_recv_nonblock = function(sock, max)
+    return _net.udp_recv_nonblock(sock, max or 4096)
+end
 
 return {
     connect = connect,
@@ -55,7 +58,8 @@ return {
     udp_send      = udp_send,
     udp_connect   = udp_connect,
     udp_send_data = udp_send_data,
-    udp_recv      = udp_recv,
-    udp_bind      = udp_bind,
-    udp_close     = udp_close
+    udp_recv          = udp_recv,
+    udp_recv_nonblock = udp_recv_nonblock,
+    udp_bind          = udp_bind,
+    udp_close         = udp_close
 }
