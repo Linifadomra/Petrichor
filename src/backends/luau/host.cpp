@@ -5,6 +5,7 @@
 #include "prelude_petrichor_mod_inc.h"
 #include "prelude_math_inc.h"
 #include "prelude_timer_inc.h"
+#include "prelude_json_inc.h"
 
 #include "prelude_async_inc.h"
 #include "backends/luau/bindings/async.hpp"
@@ -24,6 +25,8 @@
 static const struct { const char* name; const unsigned char* src; unsigned int len; } s_prelude_libs[] = {
     { "Augment.Hook",     hook_runtime_luau, hook_runtime_luau_len     },
     { "Petrichor.Standard", standard_luau,     standard_luau_len         }, // globals; class(), etc.
+    { "Petrichor.Math", math_luau,     math_luau_len         }, // globals; class(), etc.
+    { "Petrichor.Json", json_luau,     json_luau_len         }, // globals; class(), etc.
     { "Petrichor.Mod",    petrichor_mod_luau,   petrichor_mod_luau_len },
     { nullptr, nullptr, 0 }
 }; // add to register_preludes func
@@ -61,6 +64,22 @@ static std::vector<LuauModInstance> s_mods;
 using ModuleFactory = int(*)(lua_State*);
 std::unordered_map<std::string, ModuleFactory> s_module_registry;
 
+static int l_msgh(lua_State* L) {
+    lua_getglobal(L, "debug");
+    lua_getfield(L, -1, "traceback");
+    lua_remove(L, -2);
+    lua_pushvalue(L, 1);
+    lua_pushinteger(L, 2);
+    if (lua_pcall(L, 2, 1, 0) == LUA_OK) return 1;
+    lua_pop(L, 1);
+    return 1; // fallback: original message still at index 1
+}
+
+static int push_msgh(lua_State* L) {
+    lua_pushcfunction(L, l_msgh, "msgh");
+    return lua_gettop(L);
+}
+
 template<typename Fn>
 static bool luau_protected(const char* ctx, Fn&& fn) {
     try {
@@ -72,6 +91,8 @@ static bool luau_protected(const char* ctx, Fn&& fn) {
         petrichor::plog("luau", "unknown exception in %s", ctx);
     }
     return false;
+}
+
 }
 
 void mem_push(lua_State* L, const char* kind, void* p) {
@@ -120,6 +141,8 @@ const char* resolveName(const char* name) {
 
 void fire_hook(PetrichorMixinCtx* ctx, int ref) {
     lua_State* L = s_L;
+
+    int msgh = push_msgh(L);
     lua_rawgeti(L, LUA_REGISTRYINDEX, ref);
 
     lua_newtable(L);
@@ -130,7 +153,7 @@ void fire_hook(PetrichorMixinCtx* ctx, int ref) {
     HookContextGuard guard(s_cur_args, s_cur_ret, ctx->args, ctx->ret);
 
     luau_protected("fire_hook", [&] {
-        if (lua_pcall(L, 1, 1, 0) != LUA_OK) {
+        if (lua_pcall(L, 1, 1, msgh) != LUA_OK) {
             const char* err = lua_tostring(L, -1);
             s_host->log("luau", err ? err : "hook error");
             lua_pop(L, 1);
@@ -139,6 +162,8 @@ void fire_hook(PetrichorMixinCtx* ctx, int ref) {
             lua_pop(L, 1);
         }
     });
+
+    lua_remove(L, msgh);
 }
 
 int l_mixin_register(lua_State* L) {
@@ -422,6 +447,8 @@ int l_n_register(lua_State* L) {
 }
 
 static void run_prelude(lua_State* L, const char* name, const unsigned char* src, unsigned int len) {
+    int msgh = push_msgh(L);
+
     lua_getfield(L, LUA_REGISTRYINDEX, "_petrichor_modcache");
     if (!lua_istable(L, -1)) {
         lua_pop(L, 1);
@@ -438,18 +465,19 @@ static void run_prelude(lua_State* L, const char* name, const unsigned char* src
 
     if (rc != LUA_OK) {
         petrichor::plog("luau", "prelude compile '%s': %s", name, lua_tostring(L, -1));
-        lua_pop(L, 2);
+        lua_pop(L, 3);
         return;
     }
-    if (lua_pcall(L, 0, 1, 0) != LUA_OK) {
+
+    if (lua_pcall(L, 0, 1, msgh) != LUA_OK) {
         petrichor::plog("luau", "prelude load '%s': %s", name, lua_tostring(L, -1));
-        lua_pop(L, 2);
+        lua_pop(L, 3);
         return;
     }
 
     lua_pushvalue(L, -1);
     lua_setfield(L, cache_idx, name);
-    lua_pop(L, 2);
+    lua_pop(L, 3);
 }
 
 int l_require_native(lua_State* L) {
@@ -501,33 +529,27 @@ int l_require_log(lua_State* L) {
     return 1;
 }
 
-int l_require_math(lua_State* L) {
+static int l_require_lua_chunk(lua_State* L, const char* name, const unsigned char* src, unsigned int len) {
+    int msgh = push_msgh(L);
+
     size_t bc = 0;
-    char* bytecode = luau_compile(
-        (const char*)math_luau,
-        math_luau_len, nullptr, &bc);
-    int rc = luau_load(L, "Petrichor.Math", bytecode, bc, 0);
+    char* bytecode = luau_compile((const char*)src, len, nullptr, &bc);
+    int rc = luau_load(L, name, bytecode, bc, 0);
     free(bytecode);
-    if (rc != LUA_OK) luaL_error(L, "Petrichor.Math: %s", lua_tostring(L, -1));
-    if (lua_pcall(L, 0, 1, 0) != LUA_OK)
-        luaL_error(L, "Petrichor.Math: %s", lua_tostring(L, -1));
+    if (rc != LUA_OK) luaL_error(L, "%s: %s", name, lua_tostring(L, -1));
+
+    if (lua_pcall(L, 0, 1, msgh) != LUA_OK)
+        luaL_error(L, "%s: %s", name, lua_tostring(L, -1));
+
+    lua_remove(L, msgh);
     return 1;
 }
 
-int l_require_timer(lua_State* L) {
-    size_t bc = 0;
-    char* bytecode = luau_compile(
-        (const char*)timer_luau,
-        timer_luau_len, nullptr, &bc);
-    int rc = luau_load(L, "Petrichor.Timer", bytecode, bc, 0);
-    free(bytecode);
-    if (rc != LUA_OK) luaL_error(L, "Petrichor.Timer: %s", lua_tostring(L, -1));
-    if (lua_pcall(L, 0, 1, 0) != LUA_OK)
-        luaL_error(L, "Petrichor.Timer: %s", lua_tostring(L, -1));
-    return 1;
-}
+int l_require_timer (lua_State* L) { return l_require_lua_chunk(L, "Petrichor.Timer", timer_luau, timer_luau_len); }
 
 int l_require_petrichor_async(lua_State* L) {
+    int msgh = push_msgh(L);
+
     lua_newtable(L);
     auto set = [&](const char* k, lua_CFunction f) {
         lua_pushcfunction(L, f, k); lua_setfield(L, -2, k);
@@ -537,16 +559,17 @@ int l_require_petrichor_async(lua_State* L) {
     set("hook",  l_async_hook);
 
     size_t bc = 0;
-    char* bytecode = luau_compile(
-        (const char*)async_luau,
-        async_luau_len, nullptr, &bc);
+    char* bytecode = luau_compile((const char*)async_luau, async_luau_len, nullptr, &bc);
     int rc = luau_load(L, "Petrichor.Async", bytecode, bc, 0);
     free(bytecode);
     if (rc != LUA_OK) luaL_error(L, "Petrichor.Async: %s", lua_tostring(L, -1));
 
     lua_insert(L, -2);
-    if (lua_pcall(L, 1, 1, 0) != LUA_OK)
+
+    if (lua_pcall(L, 1, 1, msgh) != LUA_OK)
         luaL_error(L, "Petrichor.Async: %s", lua_tostring(L, -1));
+
+    lua_remove(L, msgh);
     return 1;
 }
 
@@ -555,6 +578,8 @@ std::vector<std::string> s_mod_dirs;
 int l_require(lua_State* L) {
     const char* name = luaL_checkstring(L, 1);
 
+    int msgh = push_msgh(L);
+
     lua_getfield(L, LUA_REGISTRYINDEX, "_petrichor_modcache");
     if (!lua_istable(L, -1)) {
         lua_pop(L, 1);
@@ -562,8 +587,13 @@ int l_require(lua_State* L) {
         lua_pushvalue(L, -1);
         lua_setfield(L, LUA_REGISTRYINDEX, "_petrichor_modcache");
     }
+    int cache_idx = lua_gettop(L);
+
     lua_getfield(L, -1, name);
-    if (!lua_isnil(L, -1)) return 1;
+    if (!lua_isnil(L, -1)) {
+        lua_remove(L, msgh);
+        return 1;
+    }
     lua_pop(L, 1);
 
     for (auto* e = s_prelude_libs; e->name; e++) {
@@ -573,9 +603,10 @@ int l_require(lua_State* L) {
             int rc = luau_load(L, e->name, bytecode, bc, 0);
             free(bytecode);
             if (rc != LUA_OK) luaL_error(L, "prelude compile '%s': %s", name, lua_tostring(L, -1));
-            if (lua_pcall(L, 0, 1, 0) != LUA_OK) luaL_error(L, "prelude load '%s': %s", name, lua_tostring(L, -1));
+            if (lua_pcall(L, 0, 1, msgh) != LUA_OK) luaL_error(L, "prelude load '%s': %s", name, lua_tostring(L, -1));
             lua_pushvalue(L, -1);
-            lua_setfield(L, -3, name);
+            lua_setfield(L, cache_idx, name);
+            lua_remove(L, msgh);
             return 1;
         }
     }
@@ -607,15 +638,14 @@ int l_require(lua_State* L) {
         int rc = luau_load(L, name, bc, bcSize, 0);
         free(bc);
         if (rc != LUA_OK) luaL_error(L, "compile '%s': %s", name, lua_tostring(L, -1));
-        if (lua_pcall(L, 0, 1, 0) != LUA_OK) luaL_error(L, "load '%s': %s", name, lua_tostring(L, -1));
+        if (lua_pcall(L, 0, 1, msgh) != LUA_OK) luaL_error(L, "load '%s': %s", name, lua_tostring(L, -1));
     }
 
     lua_pushvalue(L, -1);
-    lua_setfield(L, -3, name);
+    lua_setfield(L, cache_idx, name);
+    lua_remove(L, msgh);
     return 1;
 }
-
-} // namespace
 
 namespace petrichor {
 
@@ -639,7 +669,6 @@ bool luau_boot(IPetrichorHost& host) {
     
     s_module_registry["Petrichor.Log"]  = l_require_log;
     s_module_registry["Petrichor.Async"] = l_require_petrichor_async;
-    s_module_registry["Petrichor.Math"]  = l_require_math;
     s_module_registry["Petrichor.Timer"] = l_require_timer;
 
     s_module_registry["Petrichor.Net"] = petrichor::net::require_module;
@@ -654,6 +683,8 @@ bool luau_boot(IPetrichorHost& host) {
 
 bool luau_loadMod(const char* dir, const char* id, const char* type, const char* entry) {
     if (!s_L) return false;
+
+    const int base = lua_gettop(s_L);
 
     bool known = false;
     for (const auto& d : s_mod_dirs) if (d == dir) { known = true; break; }
@@ -670,6 +701,8 @@ bool luau_loadMod(const char* dir, const char* id, const char* type, const char*
     src.resize(fread(&src[0], 1, (size_t)sz, f));
     fclose(f);
 
+    int msgh = push_msgh(s_L);
+
     size_t bytecodeSize = 0;
     char* bytecode = luau_compile(src.c_str(), src.size(), nullptr, &bytecodeSize);
     int rc = luau_load(s_L, id, bytecode, bytecodeSize, 0);
@@ -677,18 +710,20 @@ bool luau_loadMod(const char* dir, const char* id, const char* type, const char*
 
     if (rc != LUA_OK) {
         plog("luau", "compile error in %s: %s", id, lua_tostring(s_L, -1));
-        lua_pop(s_L, 1);
-        return false;
-    }
-    if (lua_pcall(s_L, 0, 1, 0) != LUA_OK) {
-        plog("luau", "runtime error in %s: %s", id, lua_tostring(s_L, -1));
-        lua_pop(s_L, 1);
+        lua_settop(s_L, base);
         return false;
     }
 
+    if (lua_pcall(s_L, 0, 1, msgh) != LUA_OK) {
+        plog("luau", "runtime error in %s: %s", id, lua_tostring(s_L, -1));
+        lua_settop(s_L, base);
+        return false;
+    }
+    lua_remove(s_L, msgh);
+
     if (!lua_istable(s_L, -1)) {
         plog("luau", "mod '%s' did not return a class table", id);
-        lua_pop(s_L, 1);
+        lua_settop(s_L, base);
         return false;
     }
 
@@ -699,30 +734,32 @@ bool luau_loadMod(const char* dir, const char* id, const char* type, const char*
         lua_pop(s_L, 1);
         if (!ok) {
             plog("luau", "mod '%s' missing required method '%s'", id, *m);
-            lua_pop(s_L, 1);
+            lua_settop(s_L, base);
             return false;
         }
     }
 
-    lua_getfield(s_L, -1, "new");
+    msgh = push_msgh(s_L);
+    lua_getfield(s_L, -2, "new");
     if (!lua_isfunction(s_L, -1)) {
         plog("luau", "mod '%s' class has no .new()", id);
-        lua_pop(s_L, 2);
-        return false;
-    }
-    if (lua_pcall(s_L, 0, 1, 0) != LUA_OK) {
-        plog("luau", "mod '%s' new() failed: %s", id, lua_tostring(s_L, -1));
-        lua_pop(s_L, 2);
+        lua_settop(s_L, base);
         return false;
     }
 
+    if (lua_pcall(s_L, 0, 1, msgh) != LUA_OK) {
+        plog("luau", "mod '%s' new() failed: %s", id, lua_tostring(s_L, -1));
+        lua_settop(s_L, base);
+        return false;
+    }
+    lua_remove(s_L, msgh);
     lua_remove(s_L, -2);
 
     int ref = lua_ref(s_L, -1);
     lua_pop(s_L, 1);
+
     s_mods.push_back({ std::string(id), ref });
     plog("luau", "loaded mod: %s", id);
-
     return true;
 }
 
@@ -732,15 +769,15 @@ void luau_tick(float delta) {
     for (auto& mod : s_mods) {
         luau_protected(mod.id.c_str(), [&] {
             lua_rawgeti(s_L, LUA_REGISTRYINDEX, mod.ref);
-            lua_getfield(s_L, -1, "tick");
-            lua_pushvalue(s_L, -2);
+            int msgh = push_msgh(s_L);
+            lua_getfield(s_L, -2, "tick");
+            lua_pushvalue(s_L, -3);
             lua_pushnumber(s_L, delta);
-            if (lua_pcall(s_L, 2, 0, 0) != LUA_OK) {
-                plog("luau", "tick error in %s: %s",
-                    mod.id.c_str(), lua_tostring(s_L, -1));
+            if (lua_pcall(s_L, 2, 0, msgh) != LUA_OK) {
+                plog("luau", "tick error in %s: %s", mod.id.c_str(), lua_tostring(s_L, -1));
                 lua_pop(s_L, 1);
             }
-            lua_pop(s_L, 1);
+            lua_pop(s_L, 2);
         });
     }
 }
@@ -750,14 +787,14 @@ void luau_stop() {
     for (auto& mod : s_mods) {
         luau_protected(mod.id.c_str(), [&] {
             lua_rawgeti(s_L, LUA_REGISTRYINDEX, mod.ref);
-            lua_getfield(s_L, -1, "shutdown");
-            lua_pushvalue(s_L, -2);
-            if (lua_pcall(s_L, 1, 0, 0) != LUA_OK) {
-                plog("luau", "shutdown error in %s: %s",
-                     mod.id.c_str(), lua_tostring(s_L, -1));
+            int msgh = push_msgh(s_L);
+            lua_getfield(s_L, -2, "shutdown");
+            lua_pushvalue(s_L, -3);
+            if (lua_pcall(s_L, 1, 0, msgh) != LUA_OK) {
+                plog("luau", "shutdown error in %s: %s", mod.id.c_str(), lua_tostring(s_L, -1));
                 lua_pop(s_L, 1);
             }
-            lua_pop(s_L, 1);
+            lua_pop(s_L, 2);
         });
         lua_unref(s_L, mod.ref);
     }

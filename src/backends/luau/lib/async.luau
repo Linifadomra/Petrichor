@@ -40,10 +40,15 @@ local on_hook = function(sym, phase)
     return function(step) _sched.hook(sym, phase, step) end
 end
 
+local sleep = function(seconds)
+    return await(wait_for(seconds))
+end
+
 return {
     async    = async,
     await    = await,
     defer    = defer,
     wait_for = wait_for,
     on_hook  = on_hook,
+    sleep    = sleep
 }
