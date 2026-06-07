@@ -509,8 +509,8 @@ int l_require_petrichor_async(lua_State* L) {
 
     size_t bc = 0;
     char* bytecode = luau_compile(
-        (const char*)petrichor_async_luau,
-        petrichor_async_luau_len, nullptr, &bc);
+        (const char*)async_luau,
+        async_luau_len, nullptr, &bc);
     int rc = luau_load(L, "Petrichor.Async", bytecode, bc, 0);
     free(bytecode);
     if (rc != LUA_OK) luaL_error(L, "Petrichor.Async: %s", lua_tostring(L, -1));
