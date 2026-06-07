@@ -149,6 +149,35 @@ int l_net_udp_bind(lua_State* L) {
     return 1;
 }
 
+int l_net_udp_connect(lua_State* L) {
+    UdpSockUd*  s    = check_udp_sock(L, 1);
+    const char* host = luaL_checkstring(L, 2);
+    int         port = (int)luaL_checkinteger(L, 3);
+
+    addrinfo hints{}, *res = nullptr;
+    hints.ai_family   = AF_INET;
+    hints.ai_socktype = SOCK_DGRAM;
+    char port_str[16];
+    snprintf(port_str, sizeof(port_str), "%d", port);
+    if (getaddrinfo(host, port_str, &hints, &res) != 0 || !res) {
+        lua_pushstring(L, "getaddrinfo failed"); return 1;
+    }
+    int rc = ::connect(s->fd, res->ai_addr, (int)res->ai_addrlen);
+    freeaddrinfo(res);
+    if (rc != 0) { lua_pushstring(L, "connect() failed"); return 1; }
+    lua_pushnil(L);
+    return 1;
+}
+
+int l_net_udp_send_data(lua_State* L) {
+    UdpSockUd*  s    = check_udp_sock(L, 1);
+    size_t      len  = 0;
+    const char* data = luaL_checklstring(L, 2, &len);
+    ::send(s->fd, data, (int)len, 0);
+    lua_pushnil(L);
+    return 1;
+}
+
 int l_net_udp_close(lua_State* L) {
     UdpSockUd* s = check_udp_sock(L, 1);
     if (s->fd != INVALID) { sock_close(s->fd); s->fd = INVALID; }
@@ -317,11 +346,13 @@ int require_module(lua_State* L) {
     set("send",    l_net_send);
     set("close",   l_net_close);
 
-    set("udp_open",  l_net_udp_open);
-    set("udp_send",  l_net_udp_send);
-    set("udp_recv",  l_net_udp_recv);
-    set("udp_bind",  l_net_udp_bind);
-    set("udp_close", l_net_udp_close);
+    set("udp_open",      l_net_udp_open);
+    set("udp_send",      l_net_udp_send);
+    set("udp_connect",   l_net_udp_connect);
+    set("udp_send_data", l_net_udp_send_data);
+    set("udp_recv",      l_net_udp_recv);
+    set("udp_bind",      l_net_udp_bind);
+    set("udp_close",     l_net_udp_close);
 
     size_t bc = 0;
     char* bytecode = luau_compile(

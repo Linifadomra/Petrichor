@@ -39,15 +39,23 @@ end
 local udp_close = function(sock)
     _net.udp_close(sock)
 end
+local udp_connect = function(sock, host, port)
+    return _net.udp_connect(sock, host, port)
+end
+local udp_send_data = function(sock, data)
+    return _net.udp_send_data(sock, data)
+end
 
 return {
     connect = connect,
     recv    = recv,
     send    = send,
     close   = close,
-    udp_open = udp_open,
-    udp_send = udp_send,
-    udp_recv = udp_recv,
-    udp_bind = udp_bind,
-    udp_close = udp_close
+    udp_open      = udp_open,
+    udp_send      = udp_send,
+    udp_connect   = udp_connect,
+    udp_send_data = udp_send_data,
+    udp_recv      = udp_recv,
+    udp_bind      = udp_bind,
+    udp_close     = udp_close
 }
