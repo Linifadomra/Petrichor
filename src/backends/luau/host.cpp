@@ -560,14 +560,14 @@ int l_require_petrichor_async(lua_State* L) {
 
     size_t bc = 0;
     char* bytecode = luau_compile((const char*)async_luau, async_luau_len, nullptr, &bc);
-    int rc = luau_load(L, "Petrichor.Async", bytecode, bc, 0);
+    int rc = luau_load(L, "Petrichor.Task", bytecode, bc, 0);
     free(bytecode);
-    if (rc != LUA_OK) luaL_error(L, "Petrichor.Async: %s", lua_tostring(L, -1));
+    if (rc != LUA_OK) luaL_error(L, "Petrichor.Task: %s", lua_tostring(L, -1));
 
     lua_insert(L, -2);
 
     if (lua_pcall(L, 1, 1, msgh) != LUA_OK)
-        luaL_error(L, "Petrichor.Async: %s", lua_tostring(L, -1));
+        luaL_error(L, "Petrichor.Task: %s", lua_tostring(L, -1));
 
     lua_remove(L, msgh);
     return 1;
@@ -668,7 +668,7 @@ bool luau_boot(IPetrichorHost& host) {
     s_module_registry["Augment.Mixin"]  = l_require_mixin;
     
     s_module_registry["Petrichor.Log"]  = l_require_log;
-    s_module_registry["Petrichor.Async"] = l_require_petrichor_async;
+    s_module_registry["Petrichor.Task"] = l_require_petrichor_async;
     s_module_registry["Petrichor.Timer"] = l_require_timer;
 
     s_module_registry["Petrichor.Net"] = petrichor::net::require_module;

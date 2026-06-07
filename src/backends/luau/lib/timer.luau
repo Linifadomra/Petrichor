@@ -1,4 +1,4 @@
-local Async = require("Petrichor.Async")
+local Task = require("Petrichor.Task")
 local Hook  = require("Augment.Hook")
 
 local Timer = {}
@@ -39,8 +39,8 @@ Timer.Handle = Handle
 
 function Timer.after(seconds, fn)
     local h = new_handle()
-    Async.async(function()
-        Async.await(Async.wait_for(seconds))
+    Task.async(function()
+        Task.await(Task.sleep(seconds))
         if not h:is_cancelled() then fn(h) end
         release(h)
     end)()
@@ -49,9 +49,9 @@ end
 
 function Timer.every(seconds, fn)
     local h = new_handle()
-    Async.async(function()
+    Task.async(function()
         while not h:is_cancelled() do
-            Async.await(Async.wait_for(seconds))
+            Task.sleep(seconds)
             if h:is_cancelled() then break end
             fn(h)
         end
@@ -62,12 +62,12 @@ end
 
 function Timer.after_then_every(seconds, interval, fn)
     local h = new_handle()
-    Async.async(function()
-        Async.await(Async.wait_for(seconds))
+    Task.async(function()
+        Task.await(Task.wait_for(seconds))
         if h:is_cancelled() then release(h) return end
         fn(h)
         while not h:is_cancelled() do
-            Async.await(Async.wait_for(interval))
+            Task.await(Task.wait_for(interval))
             if h:is_cancelled() then break end
             fn(h)
         end

@@ -1,6 +1,5 @@
 -- Petrichor.Net
 local _net = ...
-local Async = require("Petrichor.Async")
 
 -- connect(host, port) -> socket
 local connect = function(host, port)

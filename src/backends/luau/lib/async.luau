@@ -32,7 +32,7 @@ local defer = function()
     return function(step) _sched.defer(step) end
 end
 
-local wait_for = function(seconds)
+local delay = function(seconds)
     return function(step) _sched.timer(seconds, step) end
 end
 
@@ -41,14 +41,14 @@ local on_hook = function(sym, phase)
 end
 
 local sleep = function(seconds)
-    return await(wait_for(seconds))
+    return await(delay(seconds))
 end
 
 return {
     async    = async,
     await    = await,
     defer    = defer,
-    wait_for = wait_for,
+    delay = delay,
     on_hook  = on_hook,
     sleep    = sleep
 }
