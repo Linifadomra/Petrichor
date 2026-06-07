@@ -3,59 +3,62 @@
 #include <string>
 #include <vector>
 
-namespace {
+namespace petrichor {
 
-typedef void (*ModInitFn)(IPetrichorHost*);
-typedef void (*ModShutdownFn)(void);
+struct NativeBackend final : IBackend {
+    const char* name() const override { return "native"; }
 
-struct NativeMod {
-    void*         handle;
-    ModShutdownFn shutdown;
+    bool handles(const char* type) const override {
+        return strcmp(type, "native") == 0;
+    }
+
+    bool init(IPetrichorHost& host) override {
+        s_host = &host;
+        return true;
+    }
+
+    bool load(const char* dir, const PetrichorManifest& m) override {
+        if (!m.entry[0]) {
+            plog("mod", "%s: native mod needs an 'entry' library", m.id);
+            return false;
+        }
+        std::string path = std::string(dir) + "/" + m.entry;
+        void* h = plat::dynOpen(path.c_str());
+        if (!h) {
+            plog("mod", "%s: load failed: %s", m.id, plat::dynError());
+            return false;
+        }
+        using ModInitFn     = void(*)(IPetrichorHost*);
+        using ModShutdownFn = void(*)(void);
+        auto init_fn = (ModInitFn)plat::dynSym(h, "MOD_Init");
+        if (!init_fn) {
+            plog("mod", "%s: no MOD_Init export", m.id);
+            plat::dynClose(h);
+            return false;
+        }
+        init_fn(s_host);
+        s_mods.push_back({h, (ModShutdownFn)plat::dynSym(h, "MOD_Shutdown")});
+        plog("mod", "loaded native %s", m.id);
+        return true;
+    }
+
+    void tick(float) override {}
+
+    void shutdown() override {
+        for (auto& nm : s_mods) {
+            if (nm.shutdown_fn) nm.shutdown_fn();
+            plat::dynClose(nm.handle);
+        }
+        s_mods.clear();
+    }
+
+private:
+    struct NativeMod { void* handle; void(*shutdown_fn)(void); };
+    std::vector<NativeMod> s_mods;
+    IPetrichorHost*        s_host = nullptr;
 };
 
-std::vector<NativeMod> s_mods;
-IPetrichorHost* s_host = nullptr;
+static NativeBackend s_native_backend;
+void native_backend_register() { petrichor_register_backend(&s_native_backend); }
 
-int native_handles(const char* type) { return std::strcmp(type, "native") == 0; }
-int native_init(IPetrichorHost* host) { s_host = host; return 1; }
-
-int native_load(const char* dir, const PetrichorManifest* m) {
-    if (!m->entry[0]) {
-        petrichor::plog("mod", "%s: native mod needs an 'entry' library", m->id);
-        return 0;
-    }
-    std::string path = std::string(dir) + "/" + m->entry;
-    void* h = petrichor::plat::dynOpen(path.c_str());
-    if (!h) {
-        petrichor::plog("mod", "%s: load failed: %s", m->id, petrichor::plat::dynError());
-        return 0;
-    }
-    ModInitFn init = (ModInitFn)petrichor::plat::dynSym(h, "MOD_Init");
-    if (!init) {
-        petrichor::plog("mod", "%s: no MOD_Init export", m->id);
-        petrichor::plat::dynClose(h);
-        return 0;
-    }
-    init(s_host);
-    s_mods.push_back({h, (ModShutdownFn)petrichor::plat::dynSym(h, "MOD_Shutdown")});
-    petrichor::plog("mod", "loaded native %s", m->id);
-    return 1;
-}
-
-void native_shutdown() {
-    for (auto& nm : s_mods) {
-        if (nm.shutdown) nm.shutdown();
-        petrichor::plat::dynClose(nm.handle);
-    }
-    s_mods.clear();
-}
-
-void stub(float) {}
-
-const PetrichorBackend s_backend = { "native", native_handles, native_init, native_load, stub, native_shutdown };
-
-} // namespace
-
-namespace petrichor {
-void native_backend_register() { petrichor_register_backend(&s_backend); }
-}
+} // namespace petrichor
