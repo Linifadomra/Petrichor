@@ -11,7 +11,7 @@ _G.log = function(level, name, msg)
     _log[level](n, msg)
 end
 
-_G.class = function(name, base)
+_G.newclass = function(name, base)
     local cls = {}
     cls.__name = name
     cls.__index = cls
@@ -60,5 +60,5 @@ _G.class = function(name, base)
 end
 
 _G.mod = function(name)
-    return class(name,require("Petrichor.Mod"))
+    return newclass(name,require("Petrichor.Mod"))
 end

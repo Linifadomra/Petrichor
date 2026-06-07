@@ -27,7 +27,7 @@
 
 static const struct { const char* name; const unsigned char* src; unsigned int len; } s_prelude_libs[] = {
     { "Augment.Hook",       hook_runtime_luau,  hook_runtime_luau_len },
-    { "Petrichor.Standard", standard_luau,      standard_luau_len     }, // globals; class(), etc.
+    { "Petrichor.Standard", standard_luau,      standard_luau_len     }, // globals; newclass(), etc.
     { "Petrichor.Math",     math_luau,          math_luau_len         },
     { "Petrichor.Json",     json_luau,          json_luau_len         },
     { "Petrichor.Mod",      petrichor_mod_luau, petrichor_mod_luau_len },
