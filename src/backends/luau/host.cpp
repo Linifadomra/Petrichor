@@ -1,3 +1,4 @@
+#include "backends/luau/bindings/net.hpp"
 #include "internal.hpp"
 
 #include <lua.h>
@@ -16,7 +17,7 @@
 #include "prelude_petrichor_mod_inc.h"
 
 #include "prelude_async_inc.h"
-#include "backends/luau/luau_async.hpp"
+#include "backends/luau/bindings/async.hpp"
 
 static const struct { const char* name; const unsigned char* src; unsigned int len; } s_prelude_libs[] = {
     { "Augment.Hook",     hook_runtime_luau, hook_runtime_luau_len     },
@@ -609,6 +610,8 @@ bool luau_boot(IPetrichorHost& host) {
     s_module_registry["Augment.Mixin"]  = l_require_mixin;
     s_module_registry["Petrichor.Log"]  = l_require_log;
     s_module_registry["Petrichor.Async"] = l_require_petrichor_async;
+    s_module_registry["Petrichor.Net"] = petrichor::net::require;
+    petrichor::net::boot();
 
     for (auto* e = s_prelude_libs; e->name; e++)
         run_prelude(s_L, e->name, e->src, e->len);
@@ -728,6 +731,7 @@ void luau_stop() {
     }
     s_mods.clear();
     petrichor::async::stop(s_L);
+    petrichor::net::stop();
     lua_close(s_L);
     s_L = nullptr;
     s_host = nullptr;
