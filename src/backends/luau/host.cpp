@@ -4,6 +4,7 @@
 #include "prelude_standard_inc.h"
 #include "prelude_petrichor_mod_inc.h"
 #include "prelude_math_inc.h"
+#include "prelude_timer_inc.h"
 
 #include "prelude_async_inc.h"
 #include "backends/luau/bindings/async.hpp"
@@ -513,6 +514,19 @@ int l_require_math(lua_State* L) {
     return 1;
 }
 
+int l_require_timer(lua_State* L) {
+    size_t bc = 0;
+    char* bytecode = luau_compile(
+        (const char*)timer_luau,
+        timer_luau_len, nullptr, &bc);
+    int rc = luau_load(L, "Petrichor.Timer", bytecode, bc, 0);
+    free(bytecode);
+    if (rc != LUA_OK) luaL_error(L, "Petrichor.Timer: %s", lua_tostring(L, -1));
+    if (lua_pcall(L, 0, 1, 0) != LUA_OK)
+        luaL_error(L, "Petrichor.Timer: %s", lua_tostring(L, -1));
+    return 1;
+}
+
 int l_require_petrichor_async(lua_State* L) {
     lua_newtable(L);
     auto set = [&](const char* k, lua_CFunction f) {
@@ -622,9 +636,12 @@ bool luau_boot(IPetrichorHost& host) {
 
     s_module_registry["Augment.Native"] = l_require_native;
     s_module_registry["Augment.Mixin"]  = l_require_mixin;
+    
     s_module_registry["Petrichor.Log"]  = l_require_log;
-    s_module_registry["Petrichor.Math"] = l_require_math;
     s_module_registry["Petrichor.Async"] = l_require_petrichor_async;
+    s_module_registry["Petrichor.Math"]  = l_require_math;
+    s_module_registry["Petrichor.Timer"] = l_require_timer;
+
     s_module_registry["Petrichor.Net"] = petrichor::net::require_module;
     petrichor::net::boot();
 
