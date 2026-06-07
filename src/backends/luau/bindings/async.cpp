@@ -1,5 +1,6 @@
 #include "internal.hpp"
-#include "backends/luau/luau_async.hpp"
+#include "backends/luau/bindings/async.hpp"
+#include "backends/luau/bindings/net.hpp"
 #include <deque>
 #include <mutex>
 
@@ -114,6 +115,8 @@ void petrichor::async::tick(lua_State* L, float delta) {
         }
         lua_unref(L, call.step_ref);
     }
+
+    petrichor::net::tick(L);
 }
 
 void petrichor::async::stop(lua_State* L) {
