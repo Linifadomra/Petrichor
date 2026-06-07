@@ -118,10 +118,12 @@ extern "C" void petrichor_run(const PetrichorHost* host) {
 
 extern "C" void petrichor_stop(const PetrichorHost* host) {
     if (!host) return;
-    petrichor::luau_stop();
+    for (auto* b : s_backends)
+        b->shutdown();
 }
 
 extern "C" void petrichor_tick(const PetrichorHost* host, float delta) {
     if (!host) return;
-    petrichor::luau_tick(delta);
+    for (auto* b : s_backends)
+        b->tick(delta);
 }
