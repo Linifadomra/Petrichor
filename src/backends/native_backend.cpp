@@ -1,12 +1,11 @@
 #include "internal.hpp"
-
 #include <cstring>
 #include <string>
 #include <vector>
 
 namespace {
 
-typedef void (*ModInitFn)(const PetrichorHost*);
+typedef void (*ModInitFn)(IPetrichorHost*);
 typedef void (*ModShutdownFn)(void);
 
 struct NativeMod {
@@ -15,10 +14,10 @@ struct NativeMod {
 };
 
 std::vector<NativeMod> s_mods;
-const PetrichorHost*   s_host = nullptr;
+IPetrichorHost* s_host = nullptr;
 
 int native_handles(const char* type) { return std::strcmp(type, "native") == 0; }
-int native_init(const PetrichorHost* host) { s_host = host; return 1; }
+int native_init(IPetrichorHost* host) { s_host = host; return 1; }
 
 int native_load(const char* dir, const PetrichorManifest* m) {
     if (!m->entry[0]) {
@@ -51,7 +50,7 @@ void native_shutdown() {
     s_mods.clear();
 }
 
-void stub(float delta) {} // someone make native tick, we need to get this working
+void stub(float) {}
 
 const PetrichorBackend s_backend = { "native", native_handles, native_init, native_load, stub, native_shutdown };
 

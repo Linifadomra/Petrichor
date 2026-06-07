@@ -44,7 +44,7 @@ struct HookContextGuard {
     }
 };
 
-const PetrichorHost* s_host   = nullptr;
+IPetrichorHost* s_host = nullptr;
 lua_State*           s_L      = nullptr;
 void**               s_cur_args = nullptr;
 void*                s_cur_ret  = nullptr;
@@ -101,11 +101,11 @@ void mem_store(lua_State* L, const char* kind, void* p, int vidx) {
 }
 
 const char* resolveName(const char* name) {
-    if (!name || !s_host || !s_host->reflect) return name;
+    if (!name || !s_host || !s_host->reflect()) return name;
     std::string flat(name);
     for (size_t p = flat.find("::"); p != std::string::npos; p = flat.find("::", p))
         flat.replace(p, 2, "_");
-    const char* m = s_host->reflect->fn_mangled(flat.c_str(), 0);
+    const char* m = s_host->reflect()->fn_mangled(flat.c_str(), 0);
     return m ? m : name;
 }
 
@@ -139,12 +139,14 @@ int l_mixin_register(lua_State* L) {
     const char* tag      = luaL_optstring(L, 5, nullptr);
     luaL_checktype(L, 3, LUA_TFUNCTION);
     int ref = lua_ref(L, 3);
-    auto cb = [](PetrichorMixinCtx* ctx, void* mc) { fire_hook(ctx, (int)(intptr_t)mc); };
-    if (!s_host || !s_host->mixin) { lua_pushboolean(L, 0); return 1; }
+    auto cb = +[](void* vctx, void* mc) {
+        fire_hook(static_cast<PetrichorMixinCtx*>(vctx), (int)(intptr_t)mc);
+    };
+    if (!s_host || !s_host->mixin()) { lua_pushboolean(L, 0); return 1; }
     uint8_t ok = 0;
-    if      (strcmp(phase, "before")  == 0) ok = s_host->mixin->before (sym, cb, (void*)(intptr_t)ref, priority, tag);
-    else if (strcmp(phase, "after")   == 0) ok = s_host->mixin->after  (sym, cb, (void*)(intptr_t)ref, priority, tag);
-    else if (strcmp(phase, "replace") == 0) ok = s_host->mixin->replace(sym, cb, (void*)(intptr_t)ref, priority, tag);
+    if      (strcmp(phase, "before")  == 0) ok = s_host->mixin()->before (sym, cb, (void*)(intptr_t)ref, priority, tag);
+    else if (strcmp(phase, "after")   == 0) ok = s_host->mixin()->after  (sym, cb, (void*)(intptr_t)ref, priority, tag);
+    else if (strcmp(phase, "replace") == 0) ok = s_host->mixin()->replace(sym, cb, (void*)(intptr_t)ref, priority, tag);
     else luaL_error(L, "unknown phase '%s'", phase);
     lua_pushboolean(L, ok);
     return 1;
@@ -152,7 +154,8 @@ int l_mixin_register(lua_State* L) {
 
 int l_mixin_call(lua_State* L) {
     const char* sym = resolveName(luaL_checkstring(L, 1));
-    if (!s_host || !s_host->call) { lua_pushnil(L); return 1; }
+    if (!s_host) { lua_pushnil(L); return 1; }
+    
     luaL_checktype(L, 2, LUA_TTABLE);
     luaL_checktype(L, 3, LUA_TTABLE);
     int n = (int)lua_objlen(L, 2);
@@ -217,14 +220,14 @@ int l_mixin_set_arg(lua_State* L) {
 
 int l_mixin_resolve(lua_State* L) {
     const char* sym = resolveName(luaL_checkstring(L, 1));
-    void* p = (s_host && s_host->resolve) ? s_host->resolve(sym) : nullptr;
+    void* p = s_host ? s_host->resolve(sym) : nullptr;
     if (p) lua_pushlightuserdata(L, p); else lua_pushnil(L);
     return 1;
 }
 
 int l_mixin_cstr(lua_State* L) {
     size_t n = 0; const char* s = luaL_checklstring(L, 1, &n);
-    char* buf = (char*)(s_host && s_host->alloc ? s_host->alloc((uint32_t)(n + 1)) : nullptr);
+    char* buf = s_host ? (char*)s_host->alloc((uint32_t)(n + 1)) : nullptr;
     if (!buf) { lua_pushnil(L); return 1; }
     memcpy(buf, s, n); buf[n] = 0;
     lua_pushlightuserdata(L, buf);
@@ -270,12 +273,12 @@ int l_builder_replace(lua_State* L) { return l_builder_phase(L, "replace"); }
 
 int l_builder_register(lua_State* L) {
     Builder* b = (Builder*)luaL_checkudata(L, 1, "PetrichorBuilder");
-    auto cb = [](PetrichorMixinCtx* ctx, void* mc) { fire_hook(ctx, (int)(intptr_t)mc); };
+    auto cb = +[](void* vctx, void* mc) { fire_hook(static_cast<PetrichorMixinCtx*>(vctx), (int)(intptr_t)mc); };
     for (auto& e : b->entries) {
         const char* tag = e.tag.empty() ? nullptr : e.tag.c_str();
-        if      (e.phase == "before")  s_host->mixin->before (b->sym.c_str(), cb, (void*)(intptr_t)e.ref, e.priority, tag);
-        else if (e.phase == "after")   s_host->mixin->after  (b->sym.c_str(), cb, (void*)(intptr_t)e.ref, e.priority, tag);
-        else if (e.phase == "replace") s_host->mixin->replace(b->sym.c_str(), cb, (void*)(intptr_t)e.ref, e.priority, tag);
+        if      (e.phase == "before")  s_host->mixin()->before (b->sym.c_str(), cb, (void*)(intptr_t)e.ref, e.priority, tag);
+        else if (e.phase == "after")   s_host->mixin()->after  (b->sym.c_str(), cb, (void*)(intptr_t)e.ref, e.priority, tag);
+        else if (e.phase == "replace") s_host->mixin()->replace(b->sym.c_str(), cb, (void*)(intptr_t)e.ref, e.priority, tag);
     }
     return 0;
 }
@@ -298,7 +301,7 @@ int l_mixin_builder(lua_State* L) {
     return 1;
 }
 
-const PetrichorReflectApi* RX() { return s_host ? s_host->reflect : nullptr; }
+const IPetrichorReflectApi* RX() { return s_host ? s_host->reflect() : nullptr; }
 
 int l_n_fn_count   (lua_State* L) { lua_pushinteger(L, RX() ? RX()->fn_count(luaL_checkstring(L, 1)) : 0); return 1; }
 int l_n_fn_mangled (lua_State* L) { const char* m = RX() ? RX()->fn_mangled(luaL_checkstring(L, 1), (int)luaL_checkinteger(L, 2)) : nullptr; if (m) lua_pushstring(L, m); else lua_pushnil(L); return 1; }
@@ -361,13 +364,13 @@ int l_n_register(lua_State* L) {
     const char* phase   = luaL_checkstring(L, 2);
     luaL_checktype(L, 3, LUA_TFUNCTION);
     int ref = lua_ref(L, 3);
-    auto cb = [](PetrichorMixinCtx* ctx, void* mc) { fire_hook(ctx, (int)(intptr_t)mc); };
-    if (!s_host || !s_host->mixin) { lua_pushboolean(L, 0); return 1; }
+    auto cb = +[](void* vctx, void* mc) { fire_hook(static_cast<PetrichorMixinCtx*>(vctx), (int)(intptr_t)mc); };
+    if (!s_host || !s_host->mixin()) { lua_pushboolean(L, 0); return 1; }
     void* mc = (void*)(intptr_t)ref;
     uint8_t ok = 0;
-    if      (!strcmp(phase, "before"))  ok = s_host->mixin->before (mangled, cb, mc, 0, nullptr);
-    else if (!strcmp(phase, "after"))   ok = s_host->mixin->after  (mangled, cb, mc, 0, nullptr);
-    else if (!strcmp(phase, "replace")) ok = s_host->mixin->replace(mangled, cb, mc, 0, nullptr);
+    if      (!strcmp(phase, "before"))  ok = s_host->mixin()->before (mangled, cb, mc, 0, nullptr);
+    else if (!strcmp(phase, "after"))   ok = s_host->mixin()->after  (mangled, cb, mc, 0, nullptr);
+    else if (!strcmp(phase, "replace")) ok = s_host->mixin()    ->replace(mangled, cb, mc, 0, nullptr);
     else luaL_error(L, "unknown phase '%s'", phase);
     lua_pushboolean(L, ok);
     return 1;
@@ -526,10 +529,8 @@ void luau_register_module(const char* name, ModuleFactory factory) {
     if (name && factory) s_module_registry[name] = factory;
 }
 
-bool luau_boot(const PetrichorHost* host) {
-    s_host = host;
-    if (host && host->version != PETRICHOR_API_VERSION)
-        plog("luau", "host API version %u != petrichor %u", host->version, (unsigned)PETRICHOR_API_VERSION);
+bool luau_boot(IPetrichorHost& host) {
+    s_host = &host;
 
     s_L = luaL_newstate();
     if (!s_L) return false;

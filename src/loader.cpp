@@ -66,11 +66,11 @@ const PetrichorBackend* backendFor(const char* type) {
     return nullptr;
 }
 
-void loader_run(const PetrichorHost* host) {
+void loader_run(IPetrichorHost& host) {
     for (auto* b : s_backends)
-        if (!b->init(host)) petrichor::plog("mod", "backend '%s' failed to init", b->name);
+        if (!b->init(&host)) petrichor::plog("mod", "backend '%s' failed to init", b->name);
 
-    const char* modsDir = host->mods_dir ? host->mods_dir() : nullptr;
+    const char* modsDir = host.mods_dir();
     namespace fs = std::filesystem;
     std::error_code ec;
     if (!modsDir || !fs::exists(modsDir, ec) || !fs::is_directory(modsDir, ec)) {
@@ -87,7 +87,7 @@ void loader_run(const PetrichorHost* host) {
 
         PetrichorManifest m;
         if (!readManifest(dir.c_str(), &m)) continue;
-        if (m.apiVersion > (int)host->version) {
+        if (m.apiVersion > PETRICHOR_API_VERSION) {
             petrichor::plog("mod", "%s needs api %d", m.id, m.apiVersion);
             continue;
         }
@@ -104,26 +104,21 @@ void loader_run(const PetrichorHost* host) {
 
 } // namespace
 
-extern "C" void petrichor_register_backend(const PetrichorBackend* b) {
+void petrichor_register_backend(const PetrichorBackend* b) {
     if (b) s_backends.push_back(b);
 }
 
-extern "C" void petrichor_run(const PetrichorHost* host) {
-    if (!host) return;
-    petrichor::g_host = host;
+void petrichor_run(IPetrichorHost& host) {
+    petrichor::g_host = &host;
     petrichor::luau_backend_register();
     petrichor::native_backend_register();
     loader_run(host);
 }
 
-extern "C" void petrichor_stop(const PetrichorHost* host) {
-    if (!host) return;
-    for (auto* b : s_backends)
-        b->shutdown();
+void petrichor_stop(IPetrichorHost& host) {
+    for (auto* b : s_backends) b->shutdown();
 }
 
-extern "C" void petrichor_tick(const PetrichorHost* host, float delta) {
-    if (!host) return;
-    for (auto* b : s_backends)
-        b->tick(delta);
+void petrichor_tick(IPetrichorHost& host, float delta) {
+    for (auto* b : s_backends) b->tick(delta);
 }

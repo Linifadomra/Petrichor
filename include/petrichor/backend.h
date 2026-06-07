@@ -13,12 +13,10 @@ typedef struct PetrichorManifest {
     int  apiVersion;
 } PetrichorManifest;
 
-// A loader for a mod `type`. petrichor ships csharp + native backends; the host
-// can register more (e.g. CR's .rel backend) before calling petrichor_run.
 typedef struct PetrichorBackend {
     const char* name;
     int  (*handles)(const char* type);
-    int  (*init)(const PetrichorHost* host);
+    int  (*init)(IPetrichorHost* host);
     int  (*load)(const char* dir, const PetrichorManifest* m);
     void (*tick)(float delta);
     void (*shutdown)(void);

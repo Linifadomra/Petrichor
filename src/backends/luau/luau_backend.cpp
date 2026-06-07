@@ -9,7 +9,9 @@ int luau_handles(const char* type) {
            strcmp(type, "script") == 0;
 }
 
-int  luau_init(const PetrichorHost* host) { return petrichor::luau_boot(host) ? 1 : 0; }
+int luau_init(IPetrichorHost* host) {
+    return petrichor::luau_boot(*host) ? 1 : 0;
+}
 int  luau_load(const char* dir, const PetrichorManifest* m) {
     return petrichor::luau_loadMod(dir, m->id, m->type, m->entry) ? 1 : 0;
 }
