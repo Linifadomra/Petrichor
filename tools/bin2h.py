@@ -1,17 +1,17 @@
-#!/usr/bin/env python3
+# tools/bin2h.py
 import sys, os
 
-input_path = sys.argv[1]
-output_path = sys.argv[2]
-var_name = sys.argv[3]
+sources = sys.argv[1:-2]  # all .luau files
+out_dir = sys.argv[-2]    # output directory  
+suffix  = sys.argv[-1]    # e.g. "luau"
 
-with open(input_path, "rb") as f:
-    data = f.read()
-
-with open(output_path, "w") as f:
-    f.write(f"unsigned char {var_name}[] = {{\n    ")
-    for i, b in enumerate(data):
-        f.write(f"0x{b:02x}, ")
-        if (i + 1) % 16 == 0:
-            f.write("\n    ")
-    f.write(f"\n}};\nunsigned int {var_name}_len = {len(data)};\n")
+for src in sources:
+    name = os.path.splitext(os.path.basename(src))[0]
+    out  = os.path.join(out_dir, f"prelude_{name}_inc.h")
+    data = open(src, "rb").read()
+    var  = f"{name}_{suffix}"
+    with open(out, "w") as f:
+        f.write(f"static const unsigned char {var}[] = {{")
+        f.write(", ".join(str(b) for b in data))
+        f.write(f"}};\n")
+        f.write(f"static const unsigned int {var}_len = {len(data)};\n")
