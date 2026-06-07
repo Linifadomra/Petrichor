@@ -9,7 +9,7 @@
 
 namespace {
 
-std::vector<const PetrichorBackend*> s_backends;
+std::vector<IBackend*> s_backends;
 
 bool jsonString(const char* json, const char* key, char* out, int outSize) {
     char search[96];
@@ -40,7 +40,7 @@ int jsonInt(const char* json, const char* key, int def) {
     return atoi(p + 1);
 }
 
-bool readManifest(const char* dir, PetrichorManifest* m) {
+bool readManifest(const char* dir, PetrichorManifest& m) {
     std::string path = std::string(dir) + "/mod.json";
     FILE* f = fopen(path.c_str(), "rb");
     if (!f) return false;
@@ -50,27 +50,26 @@ bool readManifest(const char* dir, PetrichorManifest* m) {
     std::string buf((size_t)(n > 0 ? n : 0), '\0');
     if (n > 0) fread(&buf[0], 1, (size_t)n, f);
     fclose(f);
-
-    m->id[0] = m->name[0] = m->type[0] = m->entry[0] = '\0';
-    jsonString(buf.c_str(), "id", m->id, sizeof(m->id));
-    jsonString(buf.c_str(), "name", m->name, sizeof(m->name));
-    jsonString(buf.c_str(), "type", m->type, sizeof(m->type));
-    jsonString(buf.c_str(), "entry", m->entry, sizeof(m->entry));
-    m->apiVersion = jsonInt(buf.c_str(), "apiVersion", 1);
-    return m->id[0] && m->type[0];
+    m.id[0] = m.name[0] = m.type[0] = m.entry[0] = '\0';
+    jsonString(buf.c_str(), "id",         m.id,    sizeof(m.id));
+    jsonString(buf.c_str(), "name",       m.name,  sizeof(m.name));
+    jsonString(buf.c_str(), "type",       m.type,  sizeof(m.type));
+    jsonString(buf.c_str(), "entry",      m.entry, sizeof(m.entry));
+    m.apiVersion = jsonInt(buf.c_str(), "apiVersion", 1);
+    return m.id[0] && m.type[0];
 }
 
-const PetrichorBackend* backendFor(const char* type) {
+IBackend* backendFor(const char* type) {
     for (auto* b : s_backends)
         if (b->handles(type)) return b;
     return nullptr;
 }
 
-void loader_run(const PetrichorHost* host) {
+void loader_run(IPetrichorHost& host) {
     for (auto* b : s_backends)
-        if (!b->init(host)) petrichor::plog("mod", "backend '%s' failed to init", b->name);
+        if (!b->init(host)) petrichor::plog("mod", "backend '%s' failed to init", b->name());
 
-    const char* modsDir = host->mods_dir ? host->mods_dir() : nullptr;
+    const char* modsDir = host.mods_dir();
     namespace fs = std::filesystem;
     std::error_code ec;
     if (!modsDir || !fs::exists(modsDir, ec) || !fs::is_directory(modsDir, ec)) {
@@ -82,46 +81,40 @@ void loader_run(const PetrichorHost* host) {
     for (const auto& entry : fs::directory_iterator(modsDir, ec)) {
         if (ec) break;
         if (!entry.is_directory()) continue;
-
         std::string dir = entry.path().string();
-
         PetrichorManifest m;
-        if (!readManifest(dir.c_str(), &m)) continue;
-        if (m.apiVersion > (int)host->version) {
+        if (!readManifest(dir.c_str(), m)) continue;
+        if (m.apiVersion > PETRICHOR_API_VERSION) {
             petrichor::plog("mod", "%s needs api %d", m.id, m.apiVersion);
             continue;
         }
-
-        const PetrichorBackend* b = backendFor(m.type);
+        IBackend* b = backendFor(m.type);
         if (!b) {
             petrichor::plog("mod", "%s: no backend for type '%s'", m.id, m.type);
             continue;
         }
-        if (b->load(dir.c_str(), &m)) count++;
+        if (b->load(dir.c_str(), m)) count++;
     }
     petrichor::plog("mod", "%d mod(s) loaded", count);
 }
 
 } // namespace
 
-extern "C" void petrichor_register_backend(const PetrichorBackend* b) {
+void petrichor_register_backend(IBackend* b) {
     if (b) s_backends.push_back(b);
 }
 
-extern "C" void petrichor_run(const PetrichorHost* host) {
-    if (!host) return;
-    petrichor::g_host = host;
+void petrichor_run(IPetrichorHost& host) {
+    petrichor::g_host = &host;
     petrichor::luau_backend_register();
     petrichor::native_backend_register();
     loader_run(host);
 }
 
-extern "C" void petrichor_stop(const PetrichorHost* host) {
-    if (!host) return;
-    petrichor::luau_stop();
+void petrichor_stop(IPetrichorHost& host) {
+    for (auto* b : s_backends) b->shutdown();
 }
 
-extern "C" void petrichor_tick(const PetrichorHost* host, float delta) {
-    if (!host) return;
-    petrichor::luau_tick(delta);
+void petrichor_tick(IPetrichorHost& host, float delta) {
+    for (auto* b : s_backends) b->tick(delta);
 }

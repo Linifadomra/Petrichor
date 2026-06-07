@@ -19,10 +19,10 @@
 
 namespace petrichor {
 
-const PetrichorHost* g_host = nullptr;
+IPetrichorHost* g_host = nullptr;
 
 void plog(const char* tag, const char* fmt, ...) {
-    if (!g_host || !g_host->log) return;
+    if (!g_host) return;
     char buf[1024];
     va_list ap;
     va_start(ap, fmt);
