@@ -135,11 +135,32 @@ void mem_store(lua_State* L, const char* kind, void* p, int vidx) {
 }
 
 const char* resolveName(const char* name) {
-    if (!name || !s_host || !s_host->reflect()) return name;
+    if (!name) return nullptr;
+
+    static const char* const s_builtin_blocked[] = { "augment_", "_ZN7augment", nullptr };
+    for (const char* const* b = s_builtin_blocked; *b; ++b) {
+        if (strncmp(name, *b, strlen(*b)) == 0) {
+            petrichor::plog("augment", "blocked symbol access: '%s'", name);
+            return nullptr;
+        }
+    }
+
+    if (s_host && s_host->blocked_prefixes()) {
+        for (const char* const* b = s_host->blocked_prefixes(); *b; ++b) {
+            if (strncmp(name, *b, strlen(*b)) == 0) {
+                petrichor::plog("augment", "blocked symbol access: '%s'");
+                return nullptr;
+            }
+        }
+    }
+
+    if (!s_host || !s_host->reflect()) return name;
+
     std::string flat(name);
     for (size_t p = flat.find("::"); p != std::string::npos; p = flat.find("::", p))
         flat.replace(p, 2, "_");
     const char* m = s_host->reflect()->fn_mangled(flat.c_str(), 0);
+    if (!m) s_host->log("augment", "symbol not found: '%s'");
     return m ? m : name;
 }
 
@@ -462,7 +483,7 @@ int l_n_register(lua_State* L) {
     uint8_t ok = 0;
     if      (!strcmp(phase, "before"))  ok = s_host->mixin()->before (mangled, cb, mc, 0, nullptr);
     else if (!strcmp(phase, "after"))   ok = s_host->mixin()->after  (mangled, cb, mc, 0, nullptr);
-    else if (!strcmp(phase, "replace")) ok = s_host->mixin()    ->replace(mangled, cb, mc, 0, nullptr);
+    else if (!strcmp(phase, "replace")) ok = s_host->mixin()->replace(mangled, cb, mc, 0, nullptr);
     else luaL_error(L, "unknown phase '%s'", phase);
     lua_pushboolean(L, ok);
     return 1;

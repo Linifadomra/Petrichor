@@ -49,10 +49,11 @@ struct IPetrichorHost {
     virtual void        call          (const char* sym, void** args, uint32_t n) = 0;
     virtual void        subscribe_events(const PetrichorEvents* ev) = 0;
 
-    virtual const IPetrichorMixinApi*   mixin()     const { return nullptr; }
-    virtual const IPetrichorReflectApi* reflect()   const { return nullptr; }
-    virtual void*                       game_api()  const { return nullptr; }
-    virtual const char*                 store_dir() const { return nullptr; }
+    virtual const IPetrichorMixinApi*   mixin()            const { return nullptr; }
+    virtual const IPetrichorReflectApi* reflect()          const { return nullptr; }
+    virtual void*                       game_api()         const { return nullptr; }
+    virtual const char*                 store_dir()        const { return nullptr; }
+    const char* const*                  blocked_prefixes() const { return nullptr; }
 
     virtual ~IPetrichorHost() = default;
 };
