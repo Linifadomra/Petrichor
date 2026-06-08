@@ -812,6 +812,53 @@ void luau_tick(float delta) {
     }
 }
 
+void luau_fire_event(const char* event, const char* json_payload) {
+    if (!s_L || !event || !event[0]) return;
+
+    luau_protected("fire_event", [&] {
+        const int base = lua_gettop(s_L);
+        int msgh = push_msgh(s_L);
+
+        lua_getglobal(s_L, "require");
+        lua_pushstring(s_L, "Petrichor.Events");
+        if (lua_pcall(s_L, 1, 1, msgh) != LUA_OK) {
+            plog("luau", "fire_event: require Events failed: %s", lua_tostring(s_L, -1));
+            lua_settop(s_L, base);
+            return;
+        }
+
+        lua_getfield(s_L, -1, "fire");
+        lua_remove(s_L, -2);
+
+        lua_pushstring(s_L, event);
+
+        if (json_payload && json_payload[0]) {
+            lua_getglobal(s_L, "require");
+            lua_pushstring(s_L, "Petrichor.Json");
+            if (lua_pcall(s_L, 1, 1, msgh) != LUA_OK) {
+                plog("luau", "fire_event: require Json failed: %s", lua_tostring(s_L, -1));
+                lua_settop(s_L, base);
+                return;
+            }
+            lua_getfield(s_L, -1, "decode");
+            lua_remove(s_L, -2);
+            lua_pushstring(s_L, json_payload);
+            if (lua_pcall(s_L, 1, 1, msgh) != LUA_OK) {
+                plog("luau", "fire_event: json decode failed: %s", lua_tostring(s_L, -1));
+                lua_settop(s_L, base);
+                return;
+            }
+        } else {
+            lua_pushnil(s_L);
+        }
+
+        if (lua_pcall(s_L, 2, 0, msgh) != LUA_OK) {
+            plog("luau", "fire_event '%s' failed: %s", event, lua_tostring(s_L, -1));
+        }
+        lua_settop(s_L, base);
+    });
+}
+
 void luau_stop() {
     if (!s_L) return;
     for (auto& mod : s_mods) {
