@@ -160,7 +160,7 @@ const char* resolveName(const char* name) {
     for (size_t p = flat.find("::"); p != std::string::npos; p = flat.find("::", p))
         flat.replace(p, 2, "_");
     const char* m = s_host->reflect()->fn_mangled(flat.c_str(), 0);
-    if (!m) s_host->log("augment", "symbol not found: '%s'");
+    if (!m) petrichor::plog("augment", "symbol not found: '%s'", name);
     return m ? m : name;
 }
 
@@ -180,7 +180,7 @@ void fire_hook(PetrichorMixinCtx* ctx, int ref) {
     luau_protected("fire_hook", [&] {
         if (lua_pcall(L, 1, 1, msgh) != LUA_OK) {
             const char* err = lua_tostring(L, -1);
-            s_host->log("luau", err ? err : "hook error");
+            petrichor::plog("luau", err ? err : "hook error");
             lua_pop(L, 1);
         } else {
             if (!lua_isnil(L, -1)) ctx->cancelled = (uint8_t)lua_toboolean(L, -1);
@@ -354,9 +354,9 @@ int l_log_level(lua_State* L, const char* level) {
     if (level) {
         char buf[512];
         snprintf(buf, sizeof(buf), "[%s] %s", level, msg);
-        s_host->log(tag, buf);
+        petrichor::plog(tag, buf);
     } else {
-        s_host->log(tag, msg);
+        petrichor::plog(tag, msg);
     }
     return 0;
 }
