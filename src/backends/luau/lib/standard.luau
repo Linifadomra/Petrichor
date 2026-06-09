@@ -8,7 +8,13 @@ _G.Levels = {
 
 _G.log = function(level, name, msg)
     local n = name or "mod"
-    _log[level](n, msg)
+    if level == Levels.ERR or level == "err" then
+        _log.err(n, msg)
+    elseif level == Levels.WARN or level == "warn" then
+        _log.warn(n, msg)
+    else
+        _log.info(n, msg)
+    end
 end
 
 _G.newclass = function(name, base)
