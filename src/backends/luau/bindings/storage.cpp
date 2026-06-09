@@ -59,6 +59,14 @@ int l_read_asset(lua_State* L) {
     return 1;
 }
 
+int l_asset_path(lua_State* L) {
+    const char* rel = luaL_checkstring(L, 1);
+    auto* ctx = get_ctx(L);
+    std::string path = ctx->mod_dir + "/assets/" + rel;
+    lua_pushlstring(L, path.c_str(), path.size());
+    return 1;
+}
+
 } // namespace
 
 namespace petrichor::storage {
@@ -80,6 +88,7 @@ int require_module(lua_State* L, const std::string& mod_id, const std::string& m
     set("read_file",  l_read_file);
     set("write_file", l_write_file);
     set("read_asset", l_read_asset);
+    set("asset_path", l_asset_path);
 
     size_t bc = 0;
     char* bytecode = luau_compile((const char*)storage_luau, storage_luau_len, nullptr, &bc);

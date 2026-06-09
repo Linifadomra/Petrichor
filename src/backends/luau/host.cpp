@@ -13,6 +13,7 @@
 #include "backends/luau/bindings/async.hpp"
 #include "backends/luau/bindings/net.hpp"
 #include "backends/luau/bindings/storage.hpp"
+#include "backends/luau/bindings/audio.hpp"
 
 #include <lua.h>
 #include <lualib.h>
@@ -691,6 +692,9 @@ bool luau_boot(IPetrichorHost& host) {
     s_module_registry["Petrichor.Net"]     = petrichor::net::require_module;
     petrichor::net::boot();
 
+    s_module_registry["Petrichor.Audio"]   = petrichor::audio::require_module;
+    petrichor::audio::boot();
+
     for (auto* e = s_prelude_libs; e->name; e++)
         run_prelude(s_L, e->name, e->src, e->len);
 
@@ -888,6 +892,7 @@ void luau_stop() {
     s_mods.clear();
     petrichor::async::stop(s_L);
     petrichor::net::stop();
+    petrichor::audio::stop_all();
     lua_close(s_L);
     s_L = nullptr;
     s_host = nullptr;

@@ -26,12 +26,34 @@ target_sources(petrichor PRIVATE
     src/backends/luau/bindings/async.cpp
     src/backends/luau/bindings/net.cpp
     src/backends/luau/bindings/storage.cpp
+    src/backends/luau/bindings/audio.cpp
 )
 target_link_libraries(petrichor PRIVATE Luau.VM Luau.Compiler)
-target_include_directories(petrichor PRIVATE vendor/luau/VM/include vendor/luau/Compiler/include)
+target_include_directories(petrichor PRIVATE
+    vendor/luau/VM/include
+    vendor/luau/Compiler/include
+    vendor
+)
 
 if(NOT WIN32)
     target_link_libraries(petrichor PRIVATE ${CMAKE_DL_LIBS})
+endif()
+
+if(UNIX AND NOT APPLE)
+    target_link_libraries(petrichor PRIVATE pthread m dl)
+    find_library(ALSA_LIB asound)
+    if(ALSA_LIB)
+        target_link_libraries(petrichor PRIVATE ${ALSA_LIB})
+    endif()
+elseif(APPLE)
+    target_link_libraries(petrichor PRIVATE
+        "-framework AudioToolbox"
+        "-framework AudioUnit"
+        "-framework CoreAudio"
+        "-framework CoreFoundation"
+    )
+elseif(WIN32)
+    target_link_libraries(petrichor PRIVATE ole32 winmm)
 endif()
 
 option(PETRICHOR_TESTS "Build petrichor tests" OFF)

@@ -54,6 +54,10 @@ function Storage.asset(path)
     return _storage.read_asset(path)
 end
 
+function Storage.asset_path(path)
+    return _storage.asset_path(path)
+end
+
 function Storage.default(key, value)
     if store[key] == nil then
         store[key] = value
