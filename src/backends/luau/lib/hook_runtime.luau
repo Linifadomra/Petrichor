@@ -175,11 +175,34 @@ local function ambiguous(flat, n)
     })
 end
 
-return setmetatable({}, {
-    __index = function(_, flat)
-        local n = N.fnCount(flat)
-        if n == 0 then error("Hook: no such symbol '" .. flat .. "'", 2) end
-        if n == 1 then return makeHandle(N.fnMangled(flat, 0)) end
-        return ambiguous(flat, n)
-    end,
+local Hook = {}
+
+-- Read a NUL-terminated C string from a hook argument (string or NativePtr).
+function Hook.readCString(value, maxLen: number?): string?
+	if type(value) == "string" then
+		return value
+	end
+	if type(value) == "userdata" or type(value) == "lightuserdata" then
+		local len = maxLen or 32
+		local ok, name = pcall(N.readStr, value, 0, len)
+		if ok and type(name) == "string" and name ~= "" then
+			return name
+		end
+	end
+	return nil
+end
+
+setmetatable(Hook, {
+	__index = function(_, flat)
+		local n = N.fnCount(flat)
+		if n == 0 then
+			error("Hook: no such symbol '" .. flat .. "'", 2)
+		end
+		if n == 1 then
+			return makeHandle(N.fnMangled(flat, 0))
+		end
+		return ambiguous(flat, n)
+	end,
 })
+
+return Hook

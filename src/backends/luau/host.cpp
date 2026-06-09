@@ -7,6 +7,9 @@
 #include "prelude_math_inc.h"
 #include "prelude_timer_inc.h"
 #include "prelude_json_inc.h"
+#include "prelude_random_inc.h"
+#include "prelude_hash_inc.h"
+#include "prelude_bits_inc.h"
 #include "prelude_events_inc.h"
 
 #include "prelude_async_inc.h"
@@ -30,6 +33,9 @@ static const struct { const char* name; const unsigned char* src; unsigned int l
     { "Petrichor.Standard", standard_luau,      standard_luau_len     }, // globals; newclass(), etc.
     { "Petrichor.Math",     math_luau,          math_luau_len         },
     { "Petrichor.Json",     json_luau,          json_luau_len         },
+    { "Petrichor.Random",   random_luau,        random_luau_len       },
+    { "Petrichor.Hash",     hash_luau,          hash_luau_len         },
+    { "Petrichor.Bits",     bits_luau,          bits_luau_len         },
     { "Petrichor.Mod",      petrichor_mod_luau, petrichor_mod_luau_len },
     { "Petrichor.Events",   events_luau,        events_luau_len },
     { nullptr, nullptr, 0 }
