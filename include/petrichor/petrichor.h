@@ -53,7 +53,7 @@ struct IPetrichorHost {
     virtual const IPetrichorReflectApi* reflect()          const { return nullptr; }
     virtual void*                       game_api()         const { return nullptr; }
     virtual const char*                 store_dir()        const { return nullptr; }
-    const char* const*                  blocked_prefixes() const { return nullptr; }
+    virtual const char* const*          blocked_prefixes() const { return nullptr; }
 
     virtual ~IPetrichorHost() = default;
 };
