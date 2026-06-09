@@ -1,4 +1,5 @@
 #include "internal.hpp"
+#include "petrichor/petrichor.h"
 #include <cstring>
 #include <string>
 #include <vector>
@@ -19,26 +20,26 @@ struct NativeBackend final : IBackend {
 
     bool load(const char* dir, const PetrichorManifest& m) override {
         if (!m.entry[0]) {
-            plog("mod", "%s: native mod needs an 'entry' library", m.id);
+            plog(PetrichorLogLevel::Error, "mod", "%s: native mod needs an 'entry' library", m.id);
             return false;
         }
         std::string path = std::string(dir) + "/" + m.entry;
         void* h = plat::dynOpen(path.c_str());
         if (!h) {
-            plog("mod", "%s: load failed: %s", m.id, plat::dynError());
+            plog(PetrichorLogLevel::Error, "mod", "%s: load failed: %s", m.id, plat::dynError());
             return false;
         }
         using ModInitFn     = void(*)(IPetrichorHost*);
         using ModShutdownFn = void(*)(void);
         auto init_fn = (ModInitFn)plat::dynSym(h, "MOD_Init");
         if (!init_fn) {
-            plog("mod", "%s: no MOD_Init export", m.id);
+            plog(PetrichorLogLevel::Error, "mod", "%s: no MOD_Init export", m.id);
             plat::dynClose(h);
             return false;
         }
         init_fn(s_host);
         s_mods.push_back({h, (ModShutdownFn)plat::dynSym(h, "MOD_Shutdown")});
-        plog("mod", "loaded native %s", m.id);
+        plog(PetrichorLogLevel::Info, "mod", "loaded native %s", m.id);
         return true;
     }
 

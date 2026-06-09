@@ -110,7 +110,7 @@ void petrichor::async::tick(lua_State* L, float delta) {
         }
 
         if (lua_pcall(L, nargs, 0, 0) != LUA_OK) {
-            petrichor::plog("async", "step error: %s", lua_tostring(L, -1));
+            petrichor::plog(PetrichorLogLevel::Error, "async", "step error: %s", lua_tostring(L, -1));
             lua_pop(L, 1);
         }
         lua_unref(L, call.step_ref);

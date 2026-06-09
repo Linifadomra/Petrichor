@@ -39,7 +39,6 @@ int l_write_file(lua_State* L) {
     auto* ctx = get_ctx(L);
     std::string dir  = ctx->store_root + "/" + ctx->mod_id;
     std::string path = dir + "/store.json";
-    petrichor::plog("storage", "writing to: %s", path.c_str());
     std::error_code ec;
     fs::create_directories(dir, ec);
     std::ofstream f(path, std::ios::binary);

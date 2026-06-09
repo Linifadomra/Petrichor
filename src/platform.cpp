@@ -21,14 +21,14 @@ namespace petrichor {
 
 IPetrichorHost* g_host = nullptr;
 
-void plog(const char* tag, const char* fmt, ...) {
+void plog(PetrichorLogLevel level, const char* tag, const char* fmt, ...) {
     if (!g_host) return;
     char buf[1024];
     va_list ap;
     va_start(ap, fmt);
     vsnprintf(buf, sizeof(buf), fmt, ap);
     va_end(ap);
-    g_host->log(tag, buf);
+    g_host->log(level, tag, buf);
 }
 
 namespace plat {

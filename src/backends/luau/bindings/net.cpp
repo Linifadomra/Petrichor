@@ -356,7 +356,7 @@ void tick(lua_State* L) {
         }
 
         if (lua_pcall(L, 2, 0, 0) != LUA_OK) {
-            petrichor::plog("net", "step error: %s", lua_tostring(L, -1));
+            petrichor::plog(PetrichorLogLevel::Error, "net", "step error: %s", lua_tostring(L, -1));
             lua_pop(L, 1);
         }
         lua_unref(L, r.step_ref);

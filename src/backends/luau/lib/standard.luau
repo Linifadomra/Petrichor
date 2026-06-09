@@ -1,6 +1,7 @@
 local _log = require("Petrichor.Log")
 
 _G.Levels = {
+    DEBUG = "debug",
     INFO = "info",
     WARN = "warn",
     ERR  = "err",
@@ -8,10 +9,12 @@ _G.Levels = {
 
 _G.log = function(level, name, msg)
     local n = name or "mod"
-    if level == Levels.ERR or level == "err" then
+    if string.lower(level) == Levels.ERR then
         _log.err(n, msg)
-    elseif level == Levels.WARN or level == "warn" then
+    elseif string.lower(level) == Levels.WARN then
         _log.warn(n, msg)
+    elseif string.lower(level) == Levels.DEBUG then
+        _log.debug(n,msg)
     else
         _log.info(n, msg)
     end

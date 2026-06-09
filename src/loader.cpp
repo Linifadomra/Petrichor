@@ -1,4 +1,5 @@
 #include "internal.hpp"
+#include "petrichor/petrichor.h"
 
 #include <cstdio>
 #include <cstring>
@@ -67,13 +68,13 @@ IBackend* backendFor(const char* type) {
 
 void loader_run(IPetrichorHost& host) {
     for (auto* b : s_backends)
-        if (!b->init(host)) petrichor::plog("mod", "backend '%s' failed to init", b->name());
+        if (!b->init(host)) petrichor::plog(PetrichorLogLevel::Error, "mod", "backend '%s' failed to init", b->name());
 
     const char* modsDir = host.mods_dir();
     namespace fs = std::filesystem;
     std::error_code ec;
     if (!modsDir || !fs::exists(modsDir, ec) || !fs::is_directory(modsDir, ec)) {
-        petrichor::plog("mod", "no mods directory");
+        petrichor::plog(PetrichorLogLevel::Warn, "mod", "no mods directory");
         return;
     }
 
@@ -85,17 +86,17 @@ void loader_run(IPetrichorHost& host) {
         PetrichorManifest m;
         if (!readManifest(dir.c_str(), m)) continue;
         if (m.apiVersion > PETRICHOR_API_VERSION) {
-            petrichor::plog("mod", "%s needs api %d", m.id, m.apiVersion);
+            petrichor::plog(PetrichorLogLevel::Warn, "mod", "%s needs api %d", m.id, m.apiVersion);
             continue;
         }
         IBackend* b = backendFor(m.type);
         if (!b) {
-            petrichor::plog("mod", "%s: no backend for type '%s'", m.id, m.type);
+            petrichor::plog(PetrichorLogLevel::Error, "mod", "%s: no backend for type '%s'", m.id, m.type);
             continue;
         }
         if (b->load(dir.c_str(), m)) count++;
     }
-    petrichor::plog("mod", "%d mod(s) loaded", count);
+    petrichor::plog(PetrichorLogLevel::Info, "mod", "%d mod(s) loaded", count);
 }
 
 } // namespace

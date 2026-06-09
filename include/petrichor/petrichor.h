@@ -41,8 +41,10 @@ struct PetrichorEvents {
     void (*scene_load)(const char* stage, int32_t point);
 };
 
+enum class PetrichorLogLevel : uint8_t { Info = 0, Warn, Error, Debug };
+
 struct IPetrichorHost {
-    virtual void        log           (const char* tag, const char* msg) const = 0;
+    virtual void        log(PetrichorLogLevel level, const char* tag, const char* msg) const = 0;
     virtual const char* mods_dir      () const = 0;
     virtual void*       alloc         (uint32_t bytes) = 0;
     virtual void*       resolve       (const char* sym) const = 0;

@@ -17,7 +17,7 @@ namespace petrichor {
 
 extern IPetrichorHost* g_host;
 
-void plog(const char* tag, const char* fmt, ...);
+void plog(PetrichorLogLevel level, const char* tag, const char* fmt, ...);
 
 namespace plat {
     void*       dynOpen(const char* path);
