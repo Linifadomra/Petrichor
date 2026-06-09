@@ -66,6 +66,25 @@ int l_asset_path(lua_State* L) {
     return 1;
 }
 
+int l_write_asset(lua_State* L) {
+    const char* rel = luaL_checkstring(L, 1);
+    size_t len = 0;
+    const char* data = luaL_checklstring(L, 2, &len);
+    auto* ctx = get_ctx(L);
+    std::string path = ctx->mod_dir + "/assets/" + rel;
+    std::error_code ec;
+    fs::path parent = fs::path(path).parent_path();
+    if (!parent.empty()) fs::create_directories(parent, ec);
+    std::ofstream f(path, std::ios::binary);
+    if (!f) {
+        lua_pushboolean(L, 0);
+        return 1;
+    }
+    f.write(data, (std::streamsize)len);
+    lua_pushboolean(L, 1);
+    return 1;
+}
+
 } // namespace
 
 namespace petrichor::storage {
@@ -87,6 +106,7 @@ int require_module(lua_State* L, const std::string& mod_id, const std::string& m
     set("read_file",  l_read_file);
     set("write_file", l_write_file);
     set("read_asset", l_read_asset);
+    set("write_asset", l_write_asset);
     set("asset_path", l_asset_path);
 
     size_t bc = 0;
