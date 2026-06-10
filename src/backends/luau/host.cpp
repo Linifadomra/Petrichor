@@ -804,6 +804,7 @@ bool luau_loadMod(const char* dir, const char* id, const char* type, const char*
     int ref = lua_ref(s_L, -1);
     lua_pop(s_L, 1);
 
+    std::error_code ec;
     s_mods.push_back({ 
         std::string(id), 
         ref, 
@@ -811,7 +812,8 @@ bool luau_loadMod(const char* dir, const char* id, const char* type, const char*
         entry && entry[0] ? std::string(entry) : "main.luau",
         type ? std::string(type) : "",
         store_root ? std::string(store_root) : "",
-        false 
+        false,
+        std::filesystem::last_write_time(entryFile, ec)
     });
     plog(PetrichorLogLevel::Info, "luau", "loaded mod: %s", id);
     return true;
@@ -845,6 +847,7 @@ bool luau_unloadMod(const char* id) {
 
     lua_unref(s_L, it->ref);
     s_mods.erase(it);
+    plog(PetrichorLogLevel::Info, id, "mod unloaded.");
     return true;
 }
 
@@ -859,7 +862,7 @@ bool luau_reloadMod(const char* id) {
     std::string entry      = it->entry;
     std::string store_root = it->store_root;
 
-    luau_unloadMod(id);
+    if (!luau_unloadMod(id)) return false;
     return luau_loadMod(dir.c_str(), mod_id.c_str(), type.c_str(), entry.c_str(), store_root.c_str());
 }
 
@@ -970,11 +973,18 @@ std::vector<std::string> luau_poll_changes() {
         std::string entryFile = mod.dir + "/" + mod.entry;
         std::error_code ec;
         auto mtime = std::filesystem::last_write_time(entryFile, ec);
-        if (ec || mtime == mod.last_modified) continue;
-        mod.last_modified = mtime;
-        if (!mod.dirty) { mod.dirty = true; continue; }
-        mod.dirty = false;
-        changed.push_back(mod.id);
+        if (ec) continue;
+
+        if (mod.dirty) {
+            mod.dirty = false;
+            changed.push_back(mod.id);
+            continue;
+        }
+
+        if (mtime != mod.last_modified) {
+            mod.last_modified = mtime;
+            mod.dirty = true;
+        }
     }
     return changed;
 }
