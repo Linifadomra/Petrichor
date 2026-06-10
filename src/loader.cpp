@@ -128,3 +128,7 @@ void petrichor_reload_mod(const char* id) {
 void petrichor_unload_mod(const char* id) {
     for (auto* b : s_backends) b->unload(id);
 }
+
+std::vector<std::string> petrichor_poll_changes() {
+    return petrichor::luau_poll_changes();
+}
