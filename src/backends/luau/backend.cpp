@@ -21,8 +21,11 @@ struct LuauBackend final : IBackend {
         return luau_loadMod(dir, m.id, m.type, m.entry, store_root);
     }
 
-    void tick(float delta) override { luau_tick(delta); }
-    void shutdown()        override { luau_stop(); }
+    void tick(float delta)                  override { luau_tick(delta);           }
+    void shutdown()                         override { luau_stop();                }
+    bool reload(const char* id)             override { return luau_reloadMod(id);  }
+    bool unload(const char* id)             override { return luau_unloadMod(id);  }
+    std::vector<std::string> poll_changes() override { return luau_poll_changes(); }
 };
 
 static LuauBackend s_luau_backend;

@@ -1,5 +1,7 @@
 #pragma once
 #include <stdint.h>
+#include <string>
+#include <vector>
 
 #define PETRICHOR_API_VERSION 3
 
@@ -74,6 +76,9 @@ typedef void (*PetrichorMixinFn)(PetrichorMixinCtx* ctx, void* modctx);
 void petrichor_run (IPetrichorHost& host);
 void petrichor_tick(IPetrichorHost& host, float delta);
 void petrichor_stop(IPetrichorHost& host);
+void petrichor_unload_mod(const char* id);
+void petrichor_reload_mod(const char* id);
+std::vector<std::string> poll_changes();
 
 #ifdef __cplusplus
 struct lua_State;
