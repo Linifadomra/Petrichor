@@ -3,13 +3,6 @@ project(petrichor LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-if(NOT TARGET nlohmann_json::nlohmann_json)
-    add_subdirectory(
-        ${CMAKE_CURRENT_SOURCE_DIR}/../nlohmann_json
-        ${CMAKE_CURRENT_BINARY_DIR}/nlohmann_json
-        EXCLUDE_FROM_ALL)
-endif()
-
 add_library(petrichor STATIC
     src/loader.cpp
     src/platform.cpp
@@ -34,7 +27,6 @@ target_sources(petrichor PRIVATE
     src/backends/luau/bindings/net.cpp
     src/backends/luau/bindings/storage.cpp
 )
-target_link_libraries(petrichor PUBLIC nlohmann_json::nlohmann_json)
 target_link_libraries(petrichor PRIVATE Luau.VM Luau.Compiler)
 target_include_directories(petrichor PRIVATE
     vendor/luau/VM/include

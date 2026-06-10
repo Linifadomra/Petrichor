@@ -7,7 +7,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
-#include <nlohmann/json.hpp>
+#include <json.hpp>
 #include <string>
 #include <vector>
 
