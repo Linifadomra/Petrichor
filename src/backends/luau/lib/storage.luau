@@ -58,6 +58,16 @@ function Storage.asset_path(path)
     return _storage.asset_path(path)
 end
 
+function Storage.write_asset(path, content)
+    if type(content) ~= "string" then
+        return false
+    end
+    if _storage.write_asset then
+        return _storage.write_asset(path, content) == true
+    end
+    return false
+end
+
 function Storage.default(key, value)
     if store[key] == nil then
         store[key] = value
