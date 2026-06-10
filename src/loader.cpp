@@ -1,6 +1,7 @@
 #include "internal.hpp"
 #include "petrichor/petrichor.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <cstdlib>
@@ -91,7 +92,7 @@ void petrichor_register_backend(IBackend* b) {
 void petrichor_run(IPetrichorHost& host) {
     petrichor::g_host = &host;
     petrichor::luau_backend_register();
-    petrichor::native_backend_register();
+    //petrichor::native_backend_register();
     loader_run(host);
 }
 
@@ -101,4 +102,16 @@ void petrichor_stop(IPetrichorHost& host) {
 
 void petrichor_tick(IPetrichorHost& host, float delta) {
     for (auto* b : s_backends) b->tick(delta);
+}
+
+void petrichor_reload_mod(const char* id) {
+    for (auto* b : s_backends) b->reload(id);
+}
+
+void petrichor_unload_mod(const char* id) {
+    for (auto* b : s_backends) b->unload(id);
+}
+
+std::vector<std::string> petrichor_poll_changes() {
+    return petrichor::luau_poll_changes();
 }

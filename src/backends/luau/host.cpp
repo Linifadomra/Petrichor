@@ -18,6 +18,7 @@
 #include "backends/luau/bindings/net.hpp"
 #include "backends/luau/bindings/storage.hpp"
 
+#include <filesystem>
 #include <lua.h>
 #include <lualib.h>
 #include <luacode.h>
@@ -27,6 +28,7 @@
 #include <cstdint>
 #include <string>
 #include <unordered_map>
+#include <algorithm>
 #include <vector>
 
 static const struct { const char* name; const unsigned char* src; unsigned int len; } s_prelude_libs[] = {
@@ -69,7 +71,17 @@ lua_State*           s_L      = nullptr;
 void**               s_cur_args = nullptr;
 void*                s_cur_ret  = nullptr;
 
-struct LuauModInstance { std::string id; int ref; std::string mod_dir; std::string store_root; bool dirty; };
+struct LuauModInstance { 
+    std::string id; 
+    int ref; 
+    std::string dir;
+    std::string entry;
+    std::string type;
+    std::string store_root;
+    bool dirty;
+    std::filesystem::file_time_type last_modified;
+};
+
 static std::vector<LuauModInstance> s_mods;
 
 using ModuleFactory = int(*)(lua_State*);
@@ -792,9 +804,66 @@ bool luau_loadMod(const char* dir, const char* id, const char* type, const char*
     int ref = lua_ref(s_L, -1);
     lua_pop(s_L, 1);
 
-    s_mods.push_back({ std::string(id), ref, std::string(dir), store_root ? std::string(store_root) : "", false });
+    std::error_code ec;
+    s_mods.push_back({ 
+        std::string(id), 
+        ref, 
+        std::string(dir),
+        entry && entry[0] ? std::string(entry) : "main.luau",
+        type ? std::string(type) : "",
+        store_root ? std::string(store_root) : "",
+        false,
+        std::filesystem::last_write_time(entryFile, ec)
+    });
     plog(PetrichorLogLevel::Info, "luau", "loaded mod: %s", id);
     return true;
+}
+
+bool luau_unloadMod(const char* id) {
+    if (!s_L) return false;
+    auto it = std::find_if(s_mods.begin(), s_mods.end(),
+        [id](const LuauModInstance& m) { return m.id == id; });
+    if (it == s_mods.end()) return false;
+
+    luau_protected(it->id.c_str(), [&] {
+        lua_rawgeti(s_L, LUA_REGISTRYINDEX, it->ref);
+        int msgh = push_msgh(s_L);
+
+        lua_getfield(s_L, -2, "save");
+        if (lua_isfunction(s_L, -1)) {
+            lua_pushvalue(s_L, -3);
+            if (lua_pcall(s_L, 1, 0, msgh) != LUA_OK) lua_pop(s_L, 1);
+        } else lua_pop(s_L, 1);
+
+        lua_getfield(s_L, -2, "shutdown");
+        lua_pushvalue(s_L, -3);
+        if (lua_pcall(s_L, 1, 0, msgh) != LUA_OK) {
+            plog(PetrichorLogLevel::Error, "luau", "shutdown error in %s: %s",
+                it->id.c_str(), lua_tostring(s_L, -1));
+            lua_pop(s_L, 1);
+        }
+        lua_pop(s_L, 2);
+    });
+
+    lua_unref(s_L, it->ref);
+    s_mods.erase(it);
+    plog(PetrichorLogLevel::Info, id, "mod unloaded.");
+    return true;
+}
+
+bool luau_reloadMod(const char* id) {
+    auto it = std::find_if(s_mods.begin(), s_mods.end(),
+        [id](const LuauModInstance& m) { return m.id == id; });
+    if (it == s_mods.end()) return false;
+
+    std::string dir        = it->dir;
+    std::string mod_id     = it->id;
+    std::string type       = it->type;
+    std::string entry      = it->entry;
+    std::string store_root = it->store_root;
+
+    if (!luau_unloadMod(id)) return false;
+    return luau_loadMod(dir.c_str(), mod_id.c_str(), type.c_str(), entry.c_str(), store_root.c_str());
 }
 
 void luau_tick(float delta) {
@@ -896,6 +965,28 @@ void luau_stop() {
     s_L = nullptr;
     s_host = nullptr;
     s_mod_dirs.clear();
+}
+
+std::vector<std::string> luau_poll_changes() {
+    std::vector<std::string> changed;
+    for (auto& mod : s_mods) {
+        std::string entryFile = mod.dir + "/" + mod.entry;
+        std::error_code ec;
+        auto mtime = std::filesystem::last_write_time(entryFile, ec);
+        if (ec) continue;
+
+        if (mod.dirty) {
+            mod.dirty = false;
+            changed.push_back(mod.id);
+            continue;
+        }
+
+        if (mtime != mod.last_modified) {
+            mod.last_modified = mtime;
+            mod.dirty = true;
+        }
+    }
+    return changed;
 }
 
 } // namespace petrichor

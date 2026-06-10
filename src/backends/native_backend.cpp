@@ -1,3 +1,4 @@
+/*
 #include "internal.hpp"
 #include "petrichor/petrichor.h"
 #include <cstring>
@@ -63,3 +64,4 @@ static NativeBackend s_native_backend;
 void native_backend_register() { petrichor_register_backend(&s_native_backend); }
 
 } // namespace petrichor
+*/
