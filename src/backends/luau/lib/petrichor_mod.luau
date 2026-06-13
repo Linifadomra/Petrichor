@@ -12,21 +12,21 @@ function Mod:shutdown()  end
 function Mod:before(sym, fn, priority)
     local Hook = require("Augment.Hook")
     Hook[sym]:before(function(ctx)
-        fn(self, ctx)
+        fn(ctx)
     end, priority or 0)
 end
 
 function Mod:after(sym, fn, priority)
     local Hook = require("Augment.Hook")
     Hook[sym]:after(function(ctx)
-        fn(self, ctx)
+        fn(ctx)
     end, priority or 0)
 end
 
 function Mod:replace(sym, fn, priority)
     local Hook = require("Augment.Hook")
     Hook[sym]:replace(function(ctx)
-        fn(self, ctx)
+        fn(ctx)
     end, priority or 0)
 end
 
