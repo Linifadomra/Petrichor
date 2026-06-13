@@ -232,7 +232,8 @@ int l_mixin_register(lua_State* L) {
 
 int l_mixin_call(lua_State* L) {
     const char* sym = resolveName(luaL_checkstring(L, 1));
-    if (!s_host) { lua_pushnil(L); return 1; }
+    const IPetrichorReflectApi* reflect = s_host ? s_host->reflect() : nullptr;
+    if (!reflect) { lua_pushnil(L); return 1; }
     
     luaL_checktype(L, 2, LUA_TTABLE);
     luaL_checktype(L, 3, LUA_TTABLE);
@@ -247,8 +248,19 @@ int l_mixin_call(lua_State* L) {
         lua_pop(L, 2);
         argp[i] = &storage[i];
     }
-    s_host->call(sym, argp, (uint32_t)n);
-    lua_pushnil(L);
+
+    const char* retKind = reflect->fn_ret(sym);
+    char retbuf[64] = {};
+    void* retOut = (retKind && std::strcmp(retKind, "void") != 0) ? static_cast<void*>(retbuf) : nullptr;
+    if (!s_host->call(sym, argp, (uint32_t)n, retOut)) {
+        lua_pushnil(L);
+        return 1;
+    }
+
+    if (retOut)
+        mem_push(L, retKind, retbuf);
+    else
+        lua_pushboolean(L, 1);
     return 1;
 }
 
@@ -453,6 +465,22 @@ int l_n_params(lua_State* L) {
     return 1;
 }
 
+int l_n_global(lua_State* L) {
+    const char* name = luaL_checkstring(L, 1);
+    if (!RX()) {
+        lua_pushnil(L);
+        return 1;
+    }
+    const char* kind = nullptr;
+    void* addr = nullptr;
+    if (!RX()->global_addr(name, &kind, &addr) || !addr) {
+        lua_pushnil(L);
+        return 1;
+    }
+    lua_pushlightuserdata(L, addr);
+    return 1;
+}
+
 int l_n_fields(lua_State* L) {
     const PetrichorField* f = nullptr;
     int n = RX() ? RX()->struct_fields(luaL_checkstring(L, 1), &f) : 0;
@@ -535,6 +563,7 @@ int l_require_native(lua_State* L) {
     set("retKind",    l_n_ret);
     set("fields",     l_n_fields);
     set("enumValues", l_n_enum_values);
+    set("global",     l_n_global);
     set("read",       l_mem_read);
     set("write",      l_mem_write);
     set("readStr",    l_mem_read_str);

@@ -50,7 +50,7 @@ struct IPetrichorHost {
     virtual const char* mods_dir      () const = 0;
     virtual void*       alloc         (uint32_t bytes) = 0;
     virtual void*       resolve       (const char* sym) const = 0;
-    virtual void        call          (const char* sym, void** args, uint32_t n) = 0;
+    virtual int         call          (const char* sym, void** args, uint32_t n, void* ret_out) = 0;
     virtual void        subscribe_events(const PetrichorEvents* ev) = 0;
 
     virtual const IPetrichorMixinApi*   mixin()            const { return nullptr; }
