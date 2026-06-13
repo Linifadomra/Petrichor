@@ -33,20 +33,84 @@ local function readField(ptr, f)
     end
 end
 
+local function levenshtein(a, b)
+    local la, lb = #a, #b
+    if la == 0 then return lb end
+    if lb == 0 then return la end
+    local prev = {}
+    for j = 0, lb do prev[j] = j end
+    for i = 1, la do
+        local cur = { [0] = i }
+        local ca = a:sub(i, i)
+        for j = 1, lb do
+            local cb = b:sub(j, j)
+            local cost = (ca == cb) and 0 or 1
+            cur[j] = math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost)
+        end
+        prev = cur
+    end
+    return prev[lb]
+end
+
+local function sortedKeys(t)
+    local keys = {}
+    for k in pairs(t) do keys[#keys + 1] = k end
+    table.sort(keys)
+    return keys
+end
+
+local function suggest(name, candidates)
+    local lname = name:lower()
+    local best, bestDist
+    for _, cand in ipairs(candidates) do
+        local d = levenshtein(lname, cand:lower())
+        if bestDist == nil or d < bestDist then
+            bestDist, best = d, cand
+        end
+    end
+    if best and bestDist <= math.max(2, math.floor(#name * 0.4)) then
+        return best
+    end
+    return nil
+end
+
+local function notFoundError(label, k, candidates, level)
+    local msg = label .. " '" .. tostring(k) .. "'"
+    if #candidates == 0 then
+        msg = msg .. " (struct has no known fields at all... wrong view/self type?)"
+    else
+        local hint = suggest(tostring(k), candidates)
+        if hint then
+            msg = msg .. " (did you mean '" .. hint .. "'?)"
+        end
+        msg = msg .. "\nvalid: " .. table.concat(candidates, ", ")
+    end
+    error(msg, level)
+end
+
 View = function(struct, ptr)
     if ptr == nil then return nil end
     local flds = fieldsOf(struct)
+    local fieldNames
     return setmetatable({}, {
         __index = function(_, k)
+            if k == "__fields" then
+                fieldNames = fieldNames or sortedKeys(flds)
+                return fieldNames
+            end
             local f = flds[k]
             if f then return readField(ptr, f) end
             local e = enumOf(struct .. "::" .. k)
             if e then return e end
-            error(struct .. " has no field/enum '" .. tostring(k) .. "'", 2)
+            fieldNames = fieldNames or sortedKeys(flds)
+            notFoundError(struct .. " has no field/enum", k, fieldNames, 2)
         end,
         __newindex = function(_, k, v)
             local f = flds[k]
-            if not f then error(struct .. " has no writable field '" .. tostring(k) .. "'", 2) end
+            if not f then
+                fieldNames = fieldNames or sortedKeys(flds)
+                notFoundError(struct .. " has no writable field", k, fieldNames, 2)
+            end
             if f.kind == "str" then
                 N.writeStr(ptr, f.offset, f.len, v)
             else
@@ -56,6 +120,22 @@ View = function(struct, ptr)
     })
 end
 
+local function structName(kind)
+    if kind:sub(1, 7) == "struct:" then return kind:sub(8) end
+    return nil
+end
+
+local function pickSelfView(declaredSelf, params)
+    if declaredSelf ~= "" and next(fieldsOf(declaredSelf)) ~= nil then
+        return declaredSelf
+    end
+    local p0 = params[1]
+    if p0 and p0.view ~= "" and next(fieldsOf(p0.view)) ~= nil then
+        return p0.view
+    end
+    return declaredSelf
+end
+
 local function specFor(mangled)
     local byName = {}
     local params = N.params(mangled)
@@ -63,12 +143,14 @@ local function specFor(mangled)
         local nm = (p.name ~= "" and p.name) or ("arg" .. (i - 1))
         byName[nm] = { index = i - 1, kind = p.kind, view = p.view }
     end
-    return { byName = byName, selfView = N.selfView(mangled), ret = N.retKind(mangled) }
-end
 
-local function structName(kind)
-    if kind:sub(1, 7) == "struct:" then return kind:sub(8) end
-    return nil
+    local selfView = pickSelfView(N.selfView(mangled), params)
+
+    local keys = { "self", "ret", "cancelled" }
+    for name in pairs(byName) do keys[#keys + 1] = name end
+    table.sort(keys)
+
+    return { byName = byName, selfView = selfView, ret = N.retKind(mangled), keys = keys }
 end
 
 local function makeCtx(spec, raw)
@@ -76,6 +158,7 @@ local function makeCtx(spec, raw)
     local cache = {}
     return setmetatable({}, {
         __index = function(_, k)
+            if k == "__selfType" then return spec.selfView end
             if k == "cancelled" then return state.cancelled end
             if k == "self" then
                 if cache.self == nil and spec.selfView ~= "" then
@@ -109,7 +192,7 @@ local function makeCtx(spec, raw)
                 end
                 return N.arg(a.index, a.kind)
             end
-            error("ctx has no field '" .. tostring(k) .. "'", 2)
+            notFoundError("ctx has no field", k, spec.keys, 2)
         end,
         __newindex = function(_, k, v)
             if k == "cancelled" then state.cancelled = v and true or false; return end
@@ -124,7 +207,7 @@ local function makeCtx(spec, raw)
                 N.setArg(a.index, a.kind, v)
                 return
             end
-            error("ctx field '" .. tostring(k) .. "' is not assignable", 2)
+            notFoundError("ctx field", k, spec.keys, 2)
         end,
     }), state
 end
