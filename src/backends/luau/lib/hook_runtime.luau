@@ -158,7 +158,6 @@ local function makeCtx(spec, raw)
     local cache = {}
     return setmetatable({}, {
         __index = function(_, k)
-            if k == "__selfType" then return spec.selfView end
             if k == "cancelled" then return state.cancelled end
             if k == "self" then
                 if cache.self == nil and spec.selfView ~= "" then
