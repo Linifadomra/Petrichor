@@ -1018,8 +1018,4 @@ std::vector<std::string> luau_poll_changes() {
     return changed;
 }
 
-lua_State* luau_state() {
-    return s_L;
-}
-
 } // namespace petrichor
