@@ -1,5 +1,6 @@
 #include "internal.hpp"
 #include "petrichor/petrichor.h"
+#include "archive.hpp"
 
 #include <algorithm>
 #include <cstdio>
@@ -50,7 +51,15 @@ IBackend* backendFor(const char* type) {
     return nullptr;
 }
 
-void loader_run(IPetrichorHost& host) {
+void remove_temps(IPetrichorHost& host) {
+    const std::filesystem::path petrichorTemp = std::filesystem::path(host.temp_dir()) / "petrichor";
+    std::error_code ec;
+    std::filesystem::remove_all(petrichorTemp, ec);
+    if (ec) petrichor::plog(PetrichorLogLevel::Warn, "mod", "failed to clean temp dir '%s': %s",
+                            petrichorTemp.string().c_str(), ec.message().c_str());
+}
+
+void loader_run(IPetrichorHost& host, const char* format) {
     for (auto* b : s_backends)
         if (!b->init(host)) petrichor::plog(PetrichorLogLevel::Error, "mod", "backend '%s' failed to init", b->name());
 
@@ -62,11 +71,29 @@ void loader_run(IPetrichorHost& host) {
         return;
     }
 
+    remove_temps(host);
+
+    const std::string ext = format ? (std::string(".") + format) : "";
+
     int count = 0;
     for (const auto& entry : fs::directory_iterator(modsDir, ec)) {
         if (ec) break;
-        if (!entry.is_directory()) continue;
         std::string dir = entry.path().string();
+        
+        std::string extractedDir;
+        if (!ext.empty() && entry.path().extension() == ext) {
+            const char* tmpRoot = host.temp_dir();
+            extractedDir = archive_extract(dir.c_str(), (fs::path(tmpRoot) / "petrichor").string().c_str());
+            if (extractedDir.empty()) {
+                petrichor::plog(PetrichorLogLevel::Error, "mod", "failed to extract '%s'", dir.c_str());
+                continue;
+            }
+            dir = extractedDir;
+        } else if (!entry.is_directory()) {
+            petrichor::plog(PetrichorLogLevel::Warn, "mod", "unexpected file in mods folder: '%s'. file format should be: '%s'", dir.c_str(), ext.c_str());
+            continue;
+        }
+        
         PetrichorManifest m;
         if (!readManifest(dir.c_str(), m)) continue;
         if (m.apiVersion > PETRICHOR_API_VERSION) {
@@ -89,15 +116,17 @@ void petrichor_register_backend(IBackend* b) {
     if (b) s_backends.push_back(b);
 }
 
-void petrichor_run(IPetrichorHost& host) {
+void petrichor_run(IPetrichorHost& host, const char* format) {
     petrichor::g_host = &host;
     petrichor::luau_backend_register();
     //petrichor::native_backend_register();
-    loader_run(host);
+    loader_run(host,format);
 }
 
 void petrichor_stop(IPetrichorHost& host) {
     for (auto* b : s_backends) b->shutdown();
+
+    remove_temps(host);
 }
 
 void petrichor_tick(IPetrichorHost& host, float delta) {

@@ -48,6 +48,7 @@ enum class PetrichorLogLevel : uint8_t { Info = 0, Warn, Error, Debug };
 struct IPetrichorHost {
     virtual void        log(PetrichorLogLevel level, const char* tag, const char* msg) const = 0;
     virtual const char* mods_dir      () const = 0;
+    virtual const char* temp_dir      () const = 0;
     virtual void*       alloc         (uint32_t bytes) = 0;
     virtual void*       resolve       (const char* sym) const = 0;
     virtual int         call          (const char* sym, void** args, uint32_t n, void* ret_out) = 0;
@@ -73,7 +74,7 @@ struct PetrichorMixinCtx {
 };
 typedef void (*PetrichorMixinFn)(PetrichorMixinCtx* ctx, void* modctx);
 
-void petrichor_run (IPetrichorHost& host);
+void petrichor_run (IPetrichorHost& host, const char* format = "prm");
 void petrichor_tick(IPetrichorHost& host, float delta);
 void petrichor_stop(IPetrichorHost& host);
 void petrichor_unload_mod(const char* id);

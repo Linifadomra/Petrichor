@@ -3,15 +3,22 @@ project(petrichor LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+add_library(miniz STATIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor/miniz/miniz.c
+)
+
 add_library(petrichor STATIC
     src/loader.cpp
+    src/archive.cpp
     src/platform.cpp
     src/backends/native_backend.cpp
 )
 
 target_include_directories(petrichor
     PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/include
-    PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src
+    PRIVATE 
+        ${CMAKE_CURRENT_SOURCE_DIR}/src 
+        ${CMAKE_CURRENT_SOURCE_DIR}/vendor/miniz
 )
 
 add_subdirectory(vendor/luau)
@@ -27,7 +34,7 @@ target_sources(petrichor PRIVATE
     src/backends/luau/bindings/net.cpp
     src/backends/luau/bindings/storage.cpp
 )
-target_link_libraries(petrichor PRIVATE Luau.VM Luau.Compiler)
+target_link_libraries(petrichor PRIVATE miniz Luau.VM Luau.Compiler)
 target_include_directories(petrichor PRIVATE
     vendor/luau/VM/include
     vendor/luau/Compiler/include
