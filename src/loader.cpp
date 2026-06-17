@@ -52,11 +52,30 @@ IBackend* backendFor(const char* type) {
 }
 
 void remove_temps(IPetrichorHost& host) {
-    const std::filesystem::path petrichorTemp = std::filesystem::path(host.temp_dir()) / "petrichor";
+    const char* tmpRoot = host.temp_dir();
+    if (!tmpRoot || tmpRoot[0] == '\0') {
+        petrichor::plog(PetrichorLogLevel::Warn, "mod", "temp_dir() returned empty, skipping cleanup");
+        return;
+    }
+
+    const std::filesystem::path root(tmpRoot);
+    if (!root.is_absolute()) {
+        petrichor::plog(PetrichorLogLevel::Warn, "mod", "temp_dir() returned non-absolute path '%s', skipping cleanup", tmpRoot);
+        return;
+    }
+
+    const std::filesystem::path petrichorTemp = root / "petrichor";
     std::error_code ec;
     std::filesystem::remove_all(petrichorTemp, ec);
     if (ec) petrichor::plog(PetrichorLogLevel::Warn, "mod", "failed to clean temp dir '%s': %s",
                             petrichorTemp.string().c_str(), ec.message().c_str());
+}
+
+std::string lower(std::string text) {
+    std::transform(text.begin(), text.end(), text.begin(), [](unsigned char c) {
+        return std::tolower(c);
+    });
+    return text;
 }
 
 void loader_run(IPetrichorHost& host, const char* format) {
@@ -81,7 +100,7 @@ void loader_run(IPetrichorHost& host, const char* format) {
         std::string dir = entry.path().string();
         
         std::string extractedDir;
-        if (!ext.empty() && entry.path().extension() == ext) {
+        if (!ext.empty() && lower(entry.path().extension()) == lower(ext)) {
             const char* tmpRoot = host.temp_dir();
             extractedDir = archive_extract(dir.c_str(), (fs::path(tmpRoot) / "petrichor").string().c_str());
             if (extractedDir.empty()) {

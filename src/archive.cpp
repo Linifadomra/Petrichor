@@ -14,20 +14,26 @@ static std::string stemOf(const char* archivePath) {
 }
 
 static std::string unwrapSingleDir(const fs::path& dir) {
-    fs::directory_iterator it(dir);
-    fs::directory_iterator end;
+    std::error_code ec;
+    fs::directory_iterator it(dir, ec);
+    if (ec) return dir.string();
 
+    fs::directory_iterator end;
     if (it == end) return dir.string();
+
     fs::path first = it->path();
     ++it;
     if (it != end) return dir.string();
-    if (fs::is_directory(first)) return first.string();
+
+    if (fs::is_directory(first, ec) && !ec) return first.string();
     return dir.string();
 }
 
+static constexpr mz_uint   kMaxEntries       = 4096;
+static constexpr mz_uint64 kMaxExtractedBytes = 512ull * 1024 * 1024; // 512 MB
+
 std::string archive_extract(const char* archivePath, const char* tempRoot) {
     fs::path destDir = fs::path(tempRoot) / stemOf(archivePath);
-
     std::error_code ec;
     fs::create_directories(destDir, ec);
     if (ec) {
@@ -44,8 +50,16 @@ std::string archive_extract(const char* archivePath, const char* tempRoot) {
         return {};
     }
 
-    bool ok = true;
     const mz_uint numFiles = mz_zip_reader_get_num_files(&zip);
+    if (numFiles > kMaxEntries) {
+        petrichor::plog(PetrichorLogLevel::Error, "mod",
+                        "archive: '%s' has %u entries, limit is %u", archivePath, numFiles, kMaxEntries);
+        mz_zip_reader_end(&zip);
+        return {};
+    }
+
+    bool ok = true;
+    mz_uint64 totalExtracted = 0;
 
     for (mz_uint i = 0; i < numFiles; ++i) {
         mz_zip_archive_file_stat stat;
@@ -85,6 +99,14 @@ std::string archive_extract(const char* archivePath, const char* tempRoot) {
             break;
         }
 
+        totalExtracted += stat.m_uncomp_size;
+        if (totalExtracted > kMaxExtractedBytes) {
+            petrichor::plog(PetrichorLogLevel::Error, "mod",
+                            "archive: '%s' exceeds extraction limit of %llu bytes", archivePath, kMaxExtractedBytes);
+            ok = false;
+            break;
+        }
+
         if (!mz_zip_reader_extract_to_file(&zip, i, outPath.string().c_str(), 0)) {
             petrichor::plog(PetrichorLogLevel::Error, "mod",
                             "archive: failed to extract '%s' from '%s'",
@@ -95,8 +117,6 @@ std::string archive_extract(const char* archivePath, const char* tempRoot) {
     }
 
     mz_zip_reader_end(&zip);
-
     if (!ok) return {};
-
     return unwrapSingleDir(destDir);
 }

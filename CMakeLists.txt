@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(petrichor LANGUAGES CXX)
+project(petrichor LANGUAGES CXX C)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -16,7 +16,7 @@ add_library(petrichor STATIC
 
 target_include_directories(petrichor
     PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/include
-    PRIVATE 
+    PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src 
         ${CMAKE_CURRENT_SOURCE_DIR}/vendor/miniz
 )
