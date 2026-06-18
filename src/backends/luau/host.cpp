@@ -63,6 +63,33 @@ static std::vector<LuauModInstance> s_mods;
 using ModuleFactory = int(*)(lua_State*);
 std::unordered_map<std::string, ModuleFactory> s_module_registry;
 
+static int l_load(lua_State* L) {
+    size_t srcLen = 0;
+    const char* src = luaL_checklstring(L, 1, &srcLen);
+    const char* chunkname = lua_isstring(L, 2) ? lua_tostring(L, 2) : "=(load)";
+
+    size_t bcSize = 0;
+    char* bytecode = luau_compile(src, srcLen, nullptr, &bcSize);
+
+    int rc = luau_load(L, chunkname, bytecode, bcSize, 0);
+    free(bytecode);
+
+    if (rc != LUA_OK) {
+        lua_pushnil(L);
+        lua_insert(L, -2);
+        return 2;
+    }
+
+    if (lua_istable(L, 3)) {
+        lua_pushvalue(L, 3);
+        if (!lua_setfenv(L, -2)) {
+            lua_pop(L, 1);
+        }
+    }
+
+    return 1;
+}
+
 static int l_msgh(lua_State* L) {
     lua_getglobal(L, "debug");
     lua_getfield(L, -1, "traceback");
@@ -289,6 +316,9 @@ bool luau_boot(IPetrichorHost& host) {
     if (!s_L) return false;
 
     luaL_openlibs(s_L);
+
+    lua_pushcfunction(s_L, l_load, "load");
+    lua_setglobal(s_L, "load");
 
     lua_pushcfunction(s_L, l_require, "require");
     lua_setglobal(s_L, "require");
