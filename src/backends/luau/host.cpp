@@ -2,7 +2,6 @@
 #include "petrichor/luau.h"
 #include "petrichor/petrichor.h"
 
-#include "prelude_hook_runtime_inc.h"
 #include "prelude_standard_inc.h"
 #include "prelude_petrichor_mod_inc.h"
 #include "prelude_math_inc.h"
@@ -32,7 +31,6 @@
 #include <vector>
 
 static const struct { const char* name; const unsigned char* src; unsigned int len; } s_prelude_libs[] = {
-    { "Augment.Hook",       hook_runtime_luau,  hook_runtime_luau_len  },
     { "Petrichor.Standard", standard_luau,      standard_luau_len      },
     { "Petrichor.Math",     math_luau,          math_luau_len          },
     { "Petrichor.Json",     json_luau,          json_luau_len          },
