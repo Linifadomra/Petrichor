@@ -18,7 +18,7 @@ struct LuauBackend final : IBackend {
 
     bool load(const char* dir, const PetrichorManifest& m) override {
         const char* store_root = petrichor::g_host ? petrichor::g_host->store_dir() : nullptr;
-        return luau_loadMod(dir, m.id, m.type, m.entry, store_root);
+        return luau_loadMod(dir, m, store_root);
     }
 
     void tick(float delta)                  override { luau_tick(delta);           }
