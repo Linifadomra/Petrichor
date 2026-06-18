@@ -39,6 +39,7 @@ bool luau_unloadMod(const char* id);
 void luau_tick(float delta);
 void luau_stop();
 std::vector<std::string> luau_poll_changes();
+std::vector<PetrichorManifest> luau_get_mods();
 
 void luau_backend_register();
 

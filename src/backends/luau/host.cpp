@@ -600,4 +600,12 @@ std::vector<std::string> luau_poll_changes() {
     return changed;
 }
 
+std::vector<PetrichorManifest> luau_get_mods() {
+    std::vector<PetrichorManifest> all;
+    for (auto m : s_mods) {
+        all.push_back(m.manifest());
+    }
+    return all;
+}
+
 } // namespace petrichor

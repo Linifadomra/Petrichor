@@ -1,4 +1,5 @@
 #include "internal.hpp"
+#include "petrichor/backend.h"
 #include "petrichor/petrichor.h"
 #include "archive.hpp"
 
@@ -157,6 +158,15 @@ void petrichor_reload_mod(const char* id) {
 
 void petrichor_unload_mod(const char* id) {
     for (auto* b : s_backends) b->unload(id);
+}
+
+std::vector<PetrichorManifest> petrichor_get_mods() {
+    std::vector<PetrichorManifest> all;
+    for (auto* b : s_backends) {
+        auto mods = b->get_mods();
+        all.insert(all.end(), mods.begin(), mods.end());
+    }
+    return all;
 }
 
 std::vector<std::string> petrichor_poll_changes() {

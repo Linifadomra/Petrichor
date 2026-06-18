@@ -5,6 +5,14 @@
 
 #define PETRICHOR_API_VERSION 3
 
+struct PetrichorManifest {
+    char id[64];
+    char name[128];
+    char type[32];
+    char entry[128];
+    int  apiVersion;
+};
+
 struct PetrichorEvents {
     void (*pre_frame)(void);
     void (*post_frame)(void);
@@ -45,6 +53,7 @@ void petrichor_stop(IPetrichorHost& host);
 void petrichor_unload_mod(const char* id);
 void petrichor_reload_mod(const char* id);
 std::vector<std::string> petrichor_poll_changes();
+std::vector<PetrichorManifest> petrichor_get_mods();
 
 #ifdef __cplusplus
 struct lua_State;
