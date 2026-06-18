@@ -125,7 +125,7 @@ void loader_run(IPetrichorHost& host, const char* format) {
         std::string dir = entry.path().string();
         
         std::string extractedDir;
-        if (!ext.empty() && lower(entry.path().extension()) == lower(ext)) {
+        if (!ext.empty() && lower(entry.path().extension().string()) == lower(ext)) {
             const char* tmpRoot = host.temp_dir();
             extractedDir = archive_extract(dir.c_str(), (fs::path(tmpRoot) / "petrichor").string().c_str());
             if (extractedDir.empty()) {
