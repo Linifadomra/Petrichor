@@ -25,8 +25,13 @@ void copyJsonString(const nlohmann::json& doc, const char* key, char* out, size_
 }
 
 bool readManifest(const char* dir, PetrichorManifest& m) {
-    const std::string path = std::string(dir) + "/mod.json";
+    const std::string base = dir;
+    std::string path = base + "/mod.json";
     std::ifstream f(path, std::ios::binary);
+    if (!f) {
+        path = base + "/manifest.json";
+        f.open(path, std::ios::binary);
+    }
     if (!f) return false;
 
     nlohmann::json doc;
@@ -42,6 +47,24 @@ bool readManifest(const char* dir, PetrichorManifest& m) {
     copyJsonString(doc, "name", m.name, sizeof(m.name));
     copyJsonString(doc, "type", m.type, sizeof(m.type));
     copyJsonString(doc, "entry", m.entry, sizeof(m.entry));
+    copyJsonString(doc, "author",  m.author,  sizeof(m.author));
+    copyJsonString(doc, "version", m.version, sizeof(m.version));
+    copyJsonString(doc, "kind", m.kind, sizeof(m.kind));
+
+    // fallback: derive from type if kind not specified
+    if (!m.kind[0]) {
+        const std::string_view t = m.type;
+        if (t == "luau" || t == "lua" || t == "script")
+            std::strncpy(m.kind, "code", sizeof(m.kind));
+        else
+            std::strncpy(m.kind, "asset", sizeof(m.kind));
+    }
+
+    m.desc = doc.value("desc", doc.value("description", ""));
+
+    if (doc.contains("conflicts") && doc["conflicts"].is_array())
+        for (const auto& c : doc["conflicts"])
+            if (c.is_string()) m.conflicts.push_back(c.get<std::string>());    
     m.apiVersion = doc.value("apiVersion", 1);
     return m.id[0] && m.type[0];
 }

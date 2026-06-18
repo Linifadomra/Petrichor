@@ -8,9 +8,14 @@
 struct PetrichorManifest {
     char id[64];
     char name[128];
+    char kind[16]; // "code" | "asset" | "mixed"
     char type[32];
     char entry[128];
-    int  apiVersion;
+    char author[128];
+    char version[32];
+    std::string desc;
+    std::vector<std::string> conflicts;
+    int apiVersion;
 };
 
 struct PetrichorEvents {
