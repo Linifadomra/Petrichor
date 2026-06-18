@@ -15,6 +15,7 @@ struct PetrichorManifest {
     char version[32];
     std::string desc;
     std::vector<std::string> conflicts;
+    std::string dir;
     int apiVersion;
 };
 

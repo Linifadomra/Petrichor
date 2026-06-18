@@ -150,6 +150,7 @@ void loader_run(IPetrichorHost& host, const char* format) {
             continue;
         }
         if (b->load(dir.c_str(), m)) {
+            m.dir = dir;
             s_manifests.push_back(m);
             count++;
         }
