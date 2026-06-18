@@ -11,7 +11,6 @@ add_library(petrichor STATIC
     src/loader.cpp
     src/archive.cpp
     src/platform.cpp
-    src/backends/native_backend.cpp
 )
 
 target_include_directories(petrichor

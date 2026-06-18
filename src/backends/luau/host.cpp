@@ -80,6 +80,16 @@ struct LuauModInstance {
     std::string store_root;
     bool dirty;
     std::filesystem::file_time_type last_modified;
+
+    PetrichorManifest manifest() const {
+        PetrichorManifest m{};
+        std::strncpy(m.id,    id.c_str(),    sizeof(m.id)    - 1);
+        std::strncpy(m.name,  id.c_str(),    sizeof(m.name)  - 1);
+        std::strncpy(m.type,  type.c_str(),  sizeof(m.type)  - 1);
+        std::strncpy(m.entry, entry.c_str(), sizeof(m.entry) - 1);
+        m.apiVersion = PETRICHOR_API_VERSION;
+        return m;
+    }
 };
 
 static std::vector<LuauModInstance> s_mods;
@@ -111,7 +121,8 @@ static bool luau_protected(const char* ctx, Fn&& fn) {
     } catch (const std::exception& e) {
         petrichor::plog(PetrichorLogLevel::Error, "luau", "exception in %s: %s", ctx, e.what());
     } catch (...) {
-        petrichor::plog(PetrichorLogLevel::Error, "luau", "unknown exception in %s", ctx);
+        petrichor::plog(PetrichorLogLevel::Error, "luau"
+            , "unknown exception in %s", ctx);
     }
     return false;
 }
@@ -743,27 +754,38 @@ bool luau_boot(IPetrichorHost& host) {
     return true;
 }
 
-bool luau_loadMod(const char* dir, const char* id, const char* type, const char* entry, const char* store_root) {
+bool luau_loadMod(const char* dir, const PetrichorManifest& m, const char* store_root) {
     if (!s_L) return false;
+
+    const char* id    = m.id;
+    const char* type  = m.type;
+    const char* entry = m.entry[0] ? m.entry : "main.luau";
 
     const int base = lua_gettop(s_L);
 
     bool known = false;
-    for (const auto& d : s_mod_dirs) if (d == dir) { known = true; break; }
+    for (const auto& d : s_mod_dirs)
+        if (d == dir) { known = true; break; }
     if (!known) s_mod_dirs.emplace_back(dir);
 
-    std::string entryFile = std::string(dir) + "/" + (entry && entry[0] ? entry : "main.luau");
-
+    const std::string entryFile = std::string(dir) + "/" + entry;
     FILE* f = fopen(entryFile.c_str(), "rb");
-    if (!f) { plog(PetrichorLogLevel::Error, "luau", "entry not found: %s", entryFile.c_str()); return false; }
+    if (!f) {
+        plog(PetrichorLogLevel::Error, "luau", "entry not found: %s", entryFile.c_str());
+        return false;
+    }
 
-    fseek(f, 0, SEEK_END); long sz = ftell(f); fseek(f, 0, SEEK_SET);
-    if (sz < 0) { fclose(f); plog(PetrichorLogLevel::Error, "luau", "cannot read %s", entryFile.c_str()); return false; }
-    std::string src((size_t)sz, '\0');
-    src.resize(fread(&src[0], 1, (size_t)sz, f));
+    fseek(f, 0, SEEK_END);
+    const long sz = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    if (sz < 0) {
+        fclose(f);
+        plog(PetrichorLogLevel::Error, "luau", "cannot read %s", entryFile.c_str());
+        return false;
+    }
+    std::string src(static_cast<size_t>(sz), '\0');
+    src.resize(fread(&src[0], 1, static_cast<size_t>(sz), f));
     fclose(f);
-
-    int msgh = push_msgh(s_L);
 
     {
         lua_getfield(s_L, LUA_REGISTRYINDEX, "_petrichor_modcache");
@@ -773,14 +795,16 @@ bool luau_loadMod(const char* dir, const char* id, const char* type, const char*
             lua_pushvalue(s_L, -1);
             lua_setfield(s_L, LUA_REGISTRYINDEX, "_petrichor_modcache");
         }
-        petrichor::storage::require_module(s_L, std::string(id), std::string(dir), store_root ? std::string(store_root) : "");
+        petrichor::storage::require_module(s_L, id, dir, store_root ? store_root : "");
         lua_setfield(s_L, -2, "Petrichor.Storage");
         lua_pop(s_L, 1);
     }
 
+    int msgh = push_msgh(s_L);
+
     size_t bytecodeSize = 0;
     char* bytecode = luau_compile(src.c_str(), src.size(), nullptr, &bytecodeSize);
-    int rc = luau_load(s_L, id, bytecode, bytecodeSize, 0);
+    const int rc = luau_load(s_L, id, bytecode, bytecodeSize, 0);
     free(bytecode);
 
     if (rc != LUA_OK) {
@@ -802,13 +826,13 @@ bool luau_loadMod(const char* dir, const char* id, const char* type, const char*
         return false;
     }
 
-    const char* required[] = { "tick", "shutdown", nullptr };
-    for (const char** m = required; *m; m++) {
-        lua_getfield(s_L, -1, *m);
-        bool ok = lua_isfunction(s_L, -1);
+    static const char* const required[] = { "tick", "shutdown", nullptr };
+    for (const char* const* method = required; *method; ++method) {
+        lua_getfield(s_L, -1, *method);
+        const bool ok = lua_isfunction(s_L, -1);
         lua_pop(s_L, 1);
         if (!ok) {
-            plog(PetrichorLogLevel::Error, "luau", "mod '%s' missing required method '%s'; skipping. Please prefer mod(\"Name\") to raw metatables.", id, *m);
+            plog(PetrichorLogLevel::Error, "luau", "mod '%s' missing required method '%s'; skipping. Please prefer mod(\"Name\") to raw metatables.", id, *method);
             lua_settop(s_L, base);
             return false;
         }
@@ -830,20 +854,21 @@ bool luau_loadMod(const char* dir, const char* id, const char* type, const char*
     lua_remove(s_L, msgh);
     lua_remove(s_L, -2);
 
-    int ref = lua_ref(s_L, -1);
+    const int ref = lua_ref(s_L, -1);
     lua_pop(s_L, 1);
 
     std::error_code ec;
-    s_mods.push_back({ 
-        std::string(id), 
-        ref, 
+    s_mods.push_back({
+        std::string(id),
+        ref,
         std::string(dir),
-        entry && entry[0] ? std::string(entry) : "main.luau",
-        type ? std::string(type) : "",
+        std::string(entry),
+        std::string(type),
         store_root ? std::string(store_root) : "",
         false,
         std::filesystem::last_write_time(entryFile, ec)
     });
+
     plog(PetrichorLogLevel::Info, "luau", "loaded mod: %s", id);
     return true;
 }
@@ -881,18 +906,16 @@ bool luau_unloadMod(const char* id) {
 }
 
 bool luau_reloadMod(const char* id) {
-    auto it = std::find_if(s_mods.begin(), s_mods.end(),
+    const auto it = std::find_if(s_mods.begin(), s_mods.end(),
         [id](const LuauModInstance& m) { return m.id == id; });
     if (it == s_mods.end()) return false;
 
-    std::string dir        = it->dir;
-    std::string mod_id     = it->id;
-    std::string type       = it->type;
-    std::string entry      = it->entry;
-    std::string store_root = it->store_root;
+    const std::string dir        = it->dir;
+    const std::string store_root = it->store_root;
+    const PetrichorManifest m    = it->manifest();
 
     if (!luau_unloadMod(id)) return false;
-    return luau_loadMod(dir.c_str(), mod_id.c_str(), type.c_str(), entry.c_str(), store_root.c_str());
+    return luau_loadMod(dir.c_str(), m, store_root.c_str());
 }
 
 void luau_tick(float delta) {

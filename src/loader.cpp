@@ -138,7 +138,6 @@ void petrichor_register_backend(IBackend* b) {
 void petrichor_run(IPetrichorHost& host, const char* format) {
     petrichor::g_host = &host;
     petrichor::luau_backend_register();
-    //petrichor::native_backend_register();
     loader_run(host,format);
 }
 

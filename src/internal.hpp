@@ -33,7 +33,7 @@ using ModuleFactory = int(*)(lua_State*);
 void luau_register_module(const char* name, ModuleFactory factory);
 
 bool luau_boot(IPetrichorHost& host);
-bool luau_loadMod(const char* dir, const char* id, const char* type, const char* entry, const char* store_root);
+bool luau_loadMod(const char* dir, const PetrichorManifest& m, const char* store_root);
 bool luau_reloadMod(const char* id);
 bool luau_unloadMod(const char* id);
 void luau_tick(float delta);
@@ -41,7 +41,6 @@ void luau_stop();
 std::vector<std::string> luau_poll_changes();
 
 void luau_backend_register();
-void native_backend_register();
 
 void async_schedule_step(int step_ref, std::vector<double> results = {});
 void async_schedule_step_str(int step_ref, std::string result);
