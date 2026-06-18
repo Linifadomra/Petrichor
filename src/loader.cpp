@@ -16,6 +16,7 @@
 namespace {
 
 std::vector<IBackend*> s_backends;
+std::vector<PetrichorManifest> s_manifests;
 
 void copyJsonString(const nlohmann::json& doc, const char* key, char* out, size_t outSize) {
     if (!doc.contains(key) || !doc[key].is_string()) return;
@@ -137,7 +138,7 @@ void loader_run(IPetrichorHost& host, const char* format) {
             continue;
         }
         
-        PetrichorManifest m;
+        PetrichorManifest m = {};
         if (!readManifest(dir.c_str(), m)) continue;
         if (m.apiVersion > PETRICHOR_API_VERSION) {
             petrichor::plog(PetrichorLogLevel::Warn, "mod", "%s needs api %d", m.id, m.apiVersion);
@@ -148,7 +149,10 @@ void loader_run(IPetrichorHost& host, const char* format) {
             petrichor::plog(PetrichorLogLevel::Error, "mod", "%s: no backend for type '%s'", m.id, m.type);
             continue;
         }
-        if (b->load(dir.c_str(), m)) count++;
+        if (b->load(dir.c_str(), m)) {
+            s_manifests.push_back(m);
+            count++;
+        }
     }
     petrichor::plog(PetrichorLogLevel::Info, "mod", "%d mod(s) loaded", count);
 }
@@ -167,7 +171,7 @@ void petrichor_run(IPetrichorHost& host, const char* format) {
 
 void petrichor_stop(IPetrichorHost& host) {
     for (auto* b : s_backends) b->shutdown();
-
+    s_manifests.clear();
     remove_temps(host);
 }
 
@@ -184,12 +188,7 @@ void petrichor_unload_mod(const char* id) {
 }
 
 std::vector<PetrichorManifest> petrichor_get_mods() {
-    std::vector<PetrichorManifest> all;
-    for (auto* b : s_backends) {
-        auto mods = b->get_mods();
-        all.insert(all.end(), mods.begin(), mods.end());
-    }
-    return all;
+    return s_manifests;
 }
 
 std::vector<std::string> petrichor_poll_changes() {

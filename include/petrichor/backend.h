@@ -10,8 +10,7 @@ struct IBackend {
     virtual bool unload(const char* id)                            = 0;
     virtual void tick(float delta)                                 = 0;
     virtual void shutdown()                                        = 0;
-    virtual std::vector<PetrichorManifest> get_mods()              = 0;
-    virtual std::vector<std::string>       poll_changes()          = 0;
+    virtual std::vector<std::string> poll_changes()                = 0;
     virtual ~IBackend() = default;
 };
 

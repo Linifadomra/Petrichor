@@ -28,7 +28,6 @@ struct LuauBackend final : IBackend {
     bool reload(const char* id)             override { return luau_reloadMod(id);  }
     bool unload(const char* id)             override { return luau_unloadMod(id);  }
     std::vector<std::string> poll_changes() override { return luau_poll_changes(); }
-    std::vector<PetrichorManifest> get_mods() override { return luau_get_mods(); }
 };
 
 static LuauBackend s_luau_backend;

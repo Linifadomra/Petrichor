@@ -56,16 +56,6 @@ struct LuauModInstance {
     std::string store_root;
     bool        dirty;
     std::filesystem::file_time_type last_modified;
-
-    PetrichorManifest manifest() const {
-        PetrichorManifest m{};
-        std::strncpy(m.id,    id.c_str(),    sizeof(m.id)    - 1);
-        std::strncpy(m.name,  id.c_str(),    sizeof(m.name)  - 1);
-        std::strncpy(m.type,  type.c_str(),  sizeof(m.type)  - 1);
-        std::strncpy(m.entry, entry.c_str(), sizeof(m.entry) - 1);
-        m.apiVersion = PETRICHOR_API_VERSION;
-        return m;
-    }
 };
 
 static std::vector<LuauModInstance> s_mods;
@@ -476,12 +466,16 @@ bool luau_reloadMod(const char* id) {
         [id](const LuauModInstance& m) { return m.id == id; });
     if (it == s_mods.end()) return false;
 
-    const std::string       dir        = it->dir;
-    const std::string       store_root = it->store_root;
-    const PetrichorManifest m          = it->manifest();
+    const std::string dir        = it->dir;
+    const std::string store_root = it->store_root;
 
     if (!luau_unloadMod(id)) return false;
-    return luau_loadMod(dir.c_str(), m, store_root.c_str());
+
+    for (const auto& m : petrichor_get_mods())
+        if (std::strcmp(m.id, id) == 0)
+            return luau_loadMod(dir.c_str(), m, store_root.c_str());
+
+    return false;
 }
 
 void luau_tick(float delta) {
@@ -603,14 +597,6 @@ std::vector<std::string> luau_poll_changes() {
         }
     }
     return changed;
-}
-
-std::vector<PetrichorManifest> luau_get_mods() {
-    std::vector<PetrichorManifest> all;
-    for (auto m : s_mods) {
-        all.push_back(m.manifest());
-    }
-    return all;
 }
 
 } // namespace petrichor
