@@ -1,6 +1,5 @@
 local _storage = ...
 local Json = require("Petrichor.Json")
-
 local store = {}
 local dirty = false
 
@@ -18,7 +17,7 @@ local function save_store()
     if not dirty then return end
     local ok, encoded = pcall(Json.encode, store)
     if ok then
-        _storage.write_file(encoded)
+        _storage.write_file("store.json", encoded)
         dirty = false
     end
 end
@@ -50,6 +49,27 @@ function Storage.clear_all()
     dirty = true
 end
 
+function Storage.default(key, value)
+    if store[key] == nil then
+        store[key] = value
+        dirty = true
+    end
+    return store[key]
+end
+
+function Storage.read_file(name)
+    return _storage.read_file(name)
+end
+
+function Storage.write_file(name, content)
+    if type(content) ~= "string" then return false end
+    return _storage.write_file(name, content) == true
+end
+
+function Storage.file_path(name)
+    return _storage.file_path(name)
+end
+
 function Storage.asset(path)
     return _storage.read_asset(path)
 end
@@ -58,29 +78,8 @@ function Storage.asset_path(path)
     return _storage.asset_path(path)
 end
 
-function Storage.write_asset(path, content)
-    if type(content) ~= "string" then
-        return false
-    end
-    if _storage.write_asset then
-        return _storage.write_asset(path, content) == true
-    end
-    return false
-end
-
 function Storage.list_assets(path)
-    if _storage.list_assets then
-        return _storage.list_assets(path or "")
-    end
-    return {}
-end
-
-function Storage.default(key, value)
-    if store[key] == nil then
-        store[key] = value
-        dirty = true
-    end
-    return store[key]
+    return _storage.list_assets(path or "")
 end
 
 return Storage

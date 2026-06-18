@@ -23,9 +23,17 @@ StorageCtx* get_ctx(lua_State* L) {
 }
 
 int l_read_file(lua_State* L) {
+    const char* name = luaL_optstring(L, 1, "store.json");
     auto* ctx = get_ctx(L);
-    std::string path = ctx->store_root + "/" + ctx->mod_id + "/store.json";
-    std::ifstream f(path, std::ios::binary);
+
+    const fs::path base = (fs::path(ctx->store_root) / ctx->mod_id).lexically_normal();
+    const fs::path resolved = (fs::path(ctx->store_root) / ctx->mod_id / name).lexically_normal();
+
+    if (resolved.string().find(base.string()) != 0) {
+        lua_pushnil(L); return 1;
+    }
+
+    std::ifstream f(resolved, std::ios::binary);
     if (!f) { lua_pushnil(L); return 1; }
     std::ostringstream ss; ss << f.rdbuf();
     std::string s = ss.str();
@@ -34,16 +42,40 @@ int l_read_file(lua_State* L) {
 }
 
 int l_write_file(lua_State* L) {
+    const char* name = luaL_optstring(L, 1, "store.json");
     size_t len = 0;
-    const char* data = luaL_checklstring(L, 1, &len);
+    const char* data = luaL_checklstring(L, 2, &len);
     auto* ctx = get_ctx(L);
-    std::string dir  = ctx->store_root + "/" + ctx->mod_id;
-    std::string path = dir + "/store.json";
+
+    const fs::path base = (fs::path(ctx->store_root) / ctx->mod_id).lexically_normal();
+    const fs::path resolved = (fs::path(ctx->store_root) / ctx->mod_id / name).lexically_normal();
+
+    if (resolved.string().find(base.string()) != 0) {
+        lua_pushboolean(L, 0); return 1;
+    }
+
     std::error_code ec;
-    fs::create_directories(dir, ec);
-    std::ofstream f(path, std::ios::binary);
-    if (f) f.write(data, (std::streamsize)len);
-    return 0;
+    fs::create_directories(resolved.parent_path(), ec);
+    std::ofstream f(resolved, std::ios::binary);
+    if (!f) { lua_pushboolean(L, 0); return 1; }
+    f.write(data, (std::streamsize)len);
+    lua_pushboolean(L, 1); return 1;
+}
+
+int l_file_path(lua_State* L) {
+    const char* name = luaL_checkstring(L, 1);
+    auto* ctx = get_ctx(L);
+
+    const fs::path base = (fs::path(ctx->store_root) / ctx->mod_id).lexically_normal();
+    const fs::path resolved = (fs::path(ctx->store_root) / ctx->mod_id / name).lexically_normal();
+
+    if (resolved.string().find(base.string()) != 0) {
+        lua_pushnil(L); return 1;
+    }
+
+    const std::string s = resolved.string();
+    lua_pushlstring(L, s.c_str(), s.size());
+    return 1;
 }
 
 int l_read_asset(lua_State* L) {
@@ -63,25 +95,6 @@ int l_asset_path(lua_State* L) {
     auto* ctx = get_ctx(L);
     std::string path = ctx->mod_dir + "/assets/" + rel;
     lua_pushlstring(L, path.c_str(), path.size());
-    return 1;
-}
-
-int l_write_asset(lua_State* L) {
-    const char* rel = luaL_checkstring(L, 1);
-    size_t len = 0;
-    const char* data = luaL_checklstring(L, 2, &len);
-    auto* ctx = get_ctx(L);
-    std::string path = ctx->mod_dir + "/assets/" + rel;
-    std::error_code ec;
-    fs::path parent = fs::path(path).parent_path();
-    if (!parent.empty()) fs::create_directories(parent, ec);
-    std::ofstream f(path, std::ios::binary);
-    if (!f) {
-        lua_pushboolean(L, 0);
-        return 1;
-    }
-    f.write(data, (std::streamsize)len);
-    lua_pushboolean(L, 1);
     return 1;
 }
 
@@ -126,12 +139,12 @@ int require_module(lua_State* L, const std::string& mod_id, const std::string& m
         lua_pushcclosure(L, f, k, 1);
         lua_setfield(L, table_idx, k);
     };
-    set("read_file",  l_read_file);
-    set("write_file", l_write_file);
-    set("read_asset", l_read_asset);
-    set("write_asset", l_write_asset);
+    set("read_file",   l_read_file);
+    set("write_file",  l_write_file);
+    set("read_asset",  l_read_asset);
+    set("file_path",   l_file_path);
+    set("asset_path",  l_asset_path);
     set("list_assets", l_list_assets);
-    set("asset_path", l_asset_path);
 
     size_t bc = 0;
     char* bytecode = luau_compile((const char*)storage_luau, storage_luau_len, nullptr, &bc);

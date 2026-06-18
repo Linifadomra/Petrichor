@@ -319,6 +319,11 @@ bool luau_boot(IPetrichorHost& host) {
 bool luau_loadMod(const char* dir, const PetrichorManifest& m, const char* store_root) {
     if (!s_L) return false;
 
+    if (!store_root || store_root[0] == '\0') {
+        plog(PetrichorLogLevel::Error, "luau", "overriden 'store_dir()' in IPetrichorHost inherited class not found; refusing to load...", m.id);
+        return false;
+    }
+
     const char* id    = m.id;
     const char* type  = m.type;
     const char* entry = m.entry[0] ? m.entry : "main.luau";
@@ -358,7 +363,7 @@ bool luau_loadMod(const char* dir, const PetrichorManifest& m, const char* store
             lua_pushvalue(s_L, -1);
             lua_setfield(s_L, LUA_REGISTRYINDEX, "_petrichor_modcache");
         }
-        petrichor::storage::require_module(s_L, id, dir, store_root ? store_root : "");
+        petrichor::storage::require_module(s_L, id, dir, store_root);
         lua_setfield(s_L, -2, "Petrichor.Storage");
         lua_pop(s_L, 1);
     }
@@ -425,7 +430,7 @@ bool luau_loadMod(const char* dir, const PetrichorManifest& m, const char* store
         std::string(dir),
         std::string(entry),
         std::string(type),
-        store_root ? std::string(store_root) : "",
+        std::string(store_root),
         false,
         std::filesystem::last_write_time(entryFile, ec)
     });
