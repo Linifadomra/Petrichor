@@ -69,6 +69,7 @@ int family_from_string(const char* s) {
 }
 
 struct NetResult {
+    lua_State*  L;
     int         step_ref;
     bool        ok;
     NetKind     kind;
@@ -218,7 +219,7 @@ int l_net_udp_recv(lua_State* L) {
     sock_t fd = s->fd;
     auto cs   = s->cancel;
 
-    std::thread([fd, max, timeout, step_ref, cs] {
+    std::thread([L, fd, max, timeout, step_ref, cs] {
         fd_set rfds; FD_ZERO(&rfds); FD_SET(fd, &rfds);
         timeval tv{ (long)timeout, (long)((timeout - (long)timeout) * 1'000'000) };
         int sel = ::select((int)fd + 1, &rfds, nullptr, nullptr, &tv);
@@ -226,11 +227,11 @@ int l_net_udp_recv(lua_State* L) {
         if (cs->cancelled.load()) return;
 
         if (sel == 0) {
-            push_result({ step_ref, false, NetKind::UdpRecv, INVALID, {}, "timeout" });
+            push_result({ L, step_ref, false, NetKind::UdpRecv, INVALID, {}, "timeout" });
             return;
         }
         if (sel < 0) {
-            push_result({ step_ref, false, NetKind::UdpRecv, INVALID, {}, "select() failed" });
+            push_result({ L, step_ref, false, NetKind::UdpRecv, INVALID, {}, "select() failed" });
             return;
         }
 
@@ -242,10 +243,10 @@ int l_net_udp_recv(lua_State* L) {
         if (cs->cancelled.load()) return;
 
         if (n <= 0) {
-            push_result({ step_ref, false, NetKind::UdpRecv, INVALID, {}, "recvfrom() failed" });
+            push_result({ L, step_ref, false, NetKind::UdpRecv, INVALID, {}, "recvfrom() failed" });
         } else {
             buf.resize(n);
-            push_result({ step_ref, true, NetKind::UdpRecv, INVALID, std::move(buf), {} });
+            push_result({ L, step_ref, true, NetKind::UdpRecv, INVALID, std::move(buf), {} });
         }
     }).detach();
 
@@ -390,7 +391,7 @@ int l_net_connect(lua_State* L) {
     auto cs = std::make_shared<NetCancelState>();
     register_inflight(mod_id, step_ref, cs);
 
-    std::thread([h, port, timeout, step_ref, cs, mod_id] {
+    std::thread([L, h, port, timeout, step_ref, cs, mod_id] {
         addrinfo hints{}, *res = nullptr;
         hints.ai_family   = AF_UNSPEC;
         hints.ai_socktype = SOCK_STREAM;
@@ -398,7 +399,7 @@ int l_net_connect(lua_State* L) {
         snprintf(port_str, sizeof(port_str), "%d", port);
 
         if (getaddrinfo(h.c_str(), port_str, &hints, &res) != 0 || !res) {
-            push_result({ step_ref, false, NetKind::Connect, INVALID, {}, "getaddrinfo failed" });
+            push_result({ L, step_ref, false, NetKind::Connect, INVALID, {}, "getaddrinfo failed" });
             unregister_inflight(mod_id, step_ref);
             return;
         }
@@ -452,7 +453,7 @@ int l_net_connect(lua_State* L) {
                     if (sel == 0) {
                         sock_close(fd);
                         timed_out = true;
-                        continue; // try the next candidate, if any time/addresses remain
+                        continue;
                     }
                     if (sel > 0) {
                         int soerr = 0; socklen_t slen = sizeof(soerr);
@@ -484,12 +485,12 @@ int l_net_connect(lua_State* L) {
         }
 
         if (!connected) {
-            push_result({ step_ref, false, NetKind::Connect, INVALID, {}, timed_out ? "timeout" : "connect() failed" });
+            push_result({ L, step_ref, false, NetKind::Connect, INVALID, {}, timed_out ? "timeout" : "connect() failed" });
             unregister_inflight(mod_id, step_ref);
             return;
         }
 
-        push_result({ step_ref, true, NetKind::Connect, good_fd, {}, {} });
+        push_result({ L, step_ref, true, NetKind::Connect, good_fd, {}, {} });
         unregister_inflight(mod_id, step_ref);
     }).detach();
 
@@ -506,7 +507,7 @@ int l_net_recv(lua_State* L) {
     auto cs      = s->cancel;
     cs->fd.store(fd);
 
-    std::thread([fd, max, timeout, step_ref, cs] {
+    std::thread([L, fd, max, timeout, step_ref, cs] {
         fd_set rfds; FD_ZERO(&rfds); FD_SET(fd, &rfds);
         timeval tv{ (long)timeout, (long)((timeout - (long)timeout) * 1'000'000) };
         int sel = ::select((int)fd + 1, &rfds, nullptr, nullptr, &tv);
@@ -514,11 +515,11 @@ int l_net_recv(lua_State* L) {
         if (cs->cancelled.load()) return;
 
         if (sel == 0) {
-            push_result({ step_ref, false, NetKind::Recv, INVALID, {}, "timeout" });
+            push_result({ L, step_ref, false, NetKind::Recv, INVALID, {}, "timeout" });
             return;
         }
         if (sel < 0) {
-            push_result({ step_ref, false, NetKind::Recv, INVALID, {}, "select() failed" });
+            push_result({ L, step_ref, false, NetKind::Recv, INVALID, {}, "select() failed" });
             return;
         }
 
@@ -528,10 +529,10 @@ int l_net_recv(lua_State* L) {
         if (cs->cancelled.load()) return;
 
         if (n <= 0) {
-            push_result({ step_ref, false, NetKind::Recv, INVALID, {}, "recv() failed or closed" });
+            push_result({ L, step_ref, false, NetKind::Recv, INVALID, {}, "recv() failed or closed" });
         } else {
             buf.resize(n);
-            push_result({ step_ref, true, NetKind::Recv, INVALID, std::move(buf), {} });
+            push_result({ L, step_ref, true, NetKind::Recv, INVALID, std::move(buf), {} });
         }
     }).detach();
 
@@ -588,7 +589,7 @@ void stop() {
 #endif
 }
 
-void tick(lua_State* L) {
+void tick() {
     std::vector<NetResult> batch;
     {
         std::lock_guard<std::mutex> lk(s_results_mutex);
@@ -596,6 +597,7 @@ void tick(lua_State* L) {
     }
 
     for (auto& r : batch) {
+        lua_State* L = r.L;
         lua_rawgeti(L, LUA_REGISTRYINDEX, r.step_ref);
 
         if (!r.ok) {

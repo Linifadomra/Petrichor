@@ -14,10 +14,10 @@ void tick(lua_State* L, float delta);
 
 void stop(lua_State* L);
 
-void schedule_step(int step_ref, std::vector<double> results = {});
-void schedule_step_str(int step_ref, std::string result);
-void schedule_hook_ctx(int step_ref, PetrichorMixinCtx* ctx);
-void schedule_timer(float seconds, int step_ref);
+void schedule_step(lua_State* L, int ref, std::vector<double> r = {});
+void schedule_step_str(lua_State* L, int ref, std::string r);
+void schedule_timer(lua_State* L, float secs, int ref);
+void cancel_pending_for_thread(lua_State* L);
 
 void register_module();
 
