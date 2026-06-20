@@ -400,7 +400,11 @@ bool luau_loadMod(const char* dir, const PetrichorManifest& m, const char* store
     fclose(f);
 
     {
-        lua_newtable(modL);
+        lua_getglobal(modL, "_petrichor_modcache_local");
+        if (!lua_istable(modL, -1)) {
+            lua_pop(modL, 1);
+            lua_newtable(modL);
+        }
         petrichor::storage::require_module(modL, id, dir, store_root);
         lua_setfield(modL, -2, "Petrichor.Storage");
 
