@@ -40,6 +40,13 @@
   static void sock_close(sock_t s) { ::close(s); }
 #endif
 
+static timeval seconds_to_timeval(double seconds) {
+    const auto sec = static_cast<decltype(timeval::tv_sec)>(seconds);
+    const double frac = seconds - static_cast<double>(sec);
+    const auto usec = static_cast<decltype(timeval::tv_usec)>(frac * 1'000'000);
+    return timeval{ sec, usec };
+}
+
 namespace {
 
 struct NetCtx {
@@ -221,7 +228,7 @@ int l_net_udp_recv(lua_State* L) {
 
     std::thread([L, fd, max, timeout, step_ref, cs] {
         fd_set rfds; FD_ZERO(&rfds); FD_SET(fd, &rfds);
-        timeval tv{ (long)timeout, (long)((timeout - (long)timeout) * 1'000'000) };
+        timeval tv = seconds_to_timeval(timeout);
         int sel = ::select((int)fd + 1, &rfds, nullptr, nullptr, &tv);
 
         if (cs->cancelled.load()) return;
@@ -442,7 +449,7 @@ int l_net_connect(lua_State* L) {
 #endif
                 if (in_progress) {
                     fd_set wfds; FD_ZERO(&wfds); FD_SET(fd, &wfds);
-                    timeval tv{ (long)per_attempt, (long)((per_attempt - (long)per_attempt) * 1'000'000) };
+                    timeval tv = seconds_to_timeval(per_attempt);
                     auto attempt_started = std::chrono::steady_clock::now();
                     int sel = ::select((int)fd + 1, nullptr, &wfds, nullptr, &tv);
                     double elapsed = std::chrono::duration<double>(
@@ -509,7 +516,7 @@ int l_net_recv(lua_State* L) {
 
     std::thread([L, fd, max, timeout, step_ref, cs] {
         fd_set rfds; FD_ZERO(&rfds); FD_SET(fd, &rfds);
-        timeval tv{ (long)timeout, (long)((timeout - (long)timeout) * 1'000'000) };
+        timeval tv = seconds_to_timeval(timeout);
         int sel = ::select((int)fd + 1, &rfds, nullptr, nullptr, &tv);
 
         if (cs->cancelled.load()) return;

@@ -32,6 +32,9 @@
 #include <algorithm>
 #include <vector>
 
+extern "C" void crLuau_setActiveMod(const char* dir, const char* id);
+extern "C" void crLuau_clearActiveMod(void);
+
 static const struct { const char* name; const unsigned char* src; unsigned int len; } s_prelude_libs[] = {
     { "Petrichor.Standard", standard_luau,      standard_luau_len      },
     { "Petrichor.Math",     math_luau,          math_luau_len          },
@@ -123,7 +126,14 @@ static bool luau_protected(const char* ctx, Fn&& fn) {
     return false;
 }
 
-static void call_mod_method(lua_State* L, sol::table& instance, const char* method) {
+struct ModContextGuard {
+    ModContextGuard(const char* dir, const char* id) { crLuau_setActiveMod(dir, id); }
+    ~ModContextGuard() { crLuau_clearActiveMod(); }
+};
+
+static void call_mod_method(lua_State* L, sol::table& instance, const char* method,
+                            const char* dir, const char* id) {
+    ModContextGuard ctx(dir, id);
     sol::protected_function fn = instance[method];
     if (!fn.valid()) return;
     auto result = fn(instance);
@@ -399,6 +409,8 @@ bool luau_loadMod(const char* dir, const PetrichorManifest& m, const char* store
     src.resize(fread(&src[0], 1, static_cast<size_t>(sz), f));
     fclose(f);
 
+    ModContextGuard modCtx(dir, id);
+
     {
         lua_getglobal(modL, "_petrichor_modcache_local");
         if (!lua_istable(modL, -1)) {
@@ -510,8 +522,8 @@ bool luau_unloadMod(const char* id) {
         sol::state_view lua(L);
         sol::table instance = sol::stack::get<sol::table>(L, -1);
         lua_pop(L, 1);
-        call_mod_method(L, instance, "save");
-        call_mod_method(L, instance, "shutdown");
+        call_mod_method(L, instance, "save", it->dir.c_str(), it->id.c_str());
+        call_mod_method(L, instance, "shutdown", it->dir.c_str(), it->id.c_str());
     });
 
     lua_unref(s_L, it->ref);
@@ -543,6 +555,7 @@ void luau_tick(float delta) {
     petrichor::async::tick(s_L, delta);
     for (auto& mod : s_mods) {
         lua_State* L = mod.thread;
+        ModContextGuard modCtx(mod.dir.c_str(), mod.id.c_str());
         luau_protected(mod.id.c_str(), [&] {
             lua_rawgeti(L, LUA_REGISTRYINDEX, mod.ref);
             sol::state_view lua(L);
@@ -617,13 +630,14 @@ void luau_stop() {
     if (!s_L) return;
     for (auto& mod : s_mods) {
         lua_State* L = mod.thread;
+        ModContextGuard modCtx(mod.dir.c_str(), mod.id.c_str());
         luau_protected(mod.id.c_str(), [&] {
             lua_rawgeti(L, LUA_REGISTRYINDEX, mod.ref);
             sol::state_view lua(L);
             sol::table instance = sol::stack::get<sol::table>(L, -1);
             lua_pop(L, 1);
-            call_mod_method(L, instance, "save");
-            call_mod_method(L, instance, "shutdown");
+            call_mod_method(L, instance, "save", mod.dir.c_str(), mod.id.c_str());
+            call_mod_method(L, instance, "shutdown", mod.dir.c_str(), mod.id.c_str());
         });
         lua_unref(s_L, mod.ref);
         lua_unref(s_L, mod.thread_ref);
