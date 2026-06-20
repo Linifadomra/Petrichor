@@ -1,5 +1,4 @@
--- MD5 and SHA-256 helpers (Petrichor.Hash).
-
+-- Petrichor.Hash
 local Hash = {}
 
 local SEED_HASH_SALT = "seedHashSecret"

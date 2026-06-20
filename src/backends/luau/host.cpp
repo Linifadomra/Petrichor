@@ -326,7 +326,6 @@ bool luau_boot(IPetrichorHost& host) {
     s_module_registry["Petrichor.Log"]   = l_require_log;
     s_module_registry["Petrichor.Task"]  = l_require_petrichor_async;
     s_module_registry["Petrichor.Timer"] = l_require_timer;
-    s_module_registry["Petrichor.Net"]   = petrichor::net::require_module;
     petrichor::net::boot();
 
     for (auto* e = s_prelude_libs; e->name; e++)
@@ -374,7 +373,7 @@ bool luau_loadMod(const char* dir, const PetrichorManifest& m, const char* store
     src.resize(fread(&src[0], 1, static_cast<size_t>(sz), f));
     fclose(f);
 
-    // Inject per-mod Storage into module cache before running entry
+    // Inject per-mod Net & Storage into module cache before running entry
     {
         lua_getfield(s_L, LUA_REGISTRYINDEX, "_petrichor_modcache");
         if (!lua_istable(s_L, -1)) {
@@ -385,6 +384,10 @@ bool luau_loadMod(const char* dir, const PetrichorManifest& m, const char* store
         }
         petrichor::storage::require_module(s_L, id, dir, store_root);
         lua_setfield(s_L, -2, "Petrichor.Storage");
+
+        petrichor::net::require_module(s_L, id);
+        lua_setfield(s_L, -2, "Petrichor.Net");
+
         lua_pop(s_L, 1);
     }
 
@@ -464,6 +467,8 @@ bool luau_unloadMod(const char* id) {
     auto it = std::find_if(s_mods.begin(), s_mods.end(),
         [id](const LuauModInstance& m) { return m.id == id; });
     if (it == s_mods.end()) return false;
+
+    petrichor::net::cancel_inflight_for_mod(id);
 
     luau_protected(it->id.c_str(), [&] {
         lua_rawgeti(s_L, LUA_REGISTRYINDEX, it->ref);

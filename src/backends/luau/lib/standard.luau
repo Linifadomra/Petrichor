@@ -1,3 +1,4 @@
+-- Petrichor.Standard (_G; no require necessary)
 local _log = require("Petrichor.Log")
 
 _G.Levels = {

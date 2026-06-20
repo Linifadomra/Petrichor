@@ -1,4 +1,4 @@
-
+-- Petrichor.Math
 local Math = {}
 
 -- Scalar

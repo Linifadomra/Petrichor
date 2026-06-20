@@ -1,3 +1,4 @@
+-- Petrichor.Storage
 local _storage = ...
 local Json = require("Petrichor.Json")
 local store = {}

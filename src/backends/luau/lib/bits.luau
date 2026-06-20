@@ -1,5 +1,4 @@
--- 6-bit ASCII bit packing (used by TPR s-settings and other compact encodings).
-
+-- Petrichor.Bits
 local Bits = {}
 
 Bits.CHARSET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-_"

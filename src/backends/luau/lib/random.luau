@@ -1,5 +1,4 @@
--- Deterministic PRNG helpers (xorshift32 and .NET System.Random compatible).
-
+-- Petrichor.Random
 local Random = {}
 
 local Xorshift = {}
