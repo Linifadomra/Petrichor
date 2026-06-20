@@ -22,6 +22,8 @@
 #include <lualib.h>
 #include <luacode.h>
 
+#include <sol/sol.hpp>
+
 #include <cstring>
 #include <cstdio>
 #include <cstdint>
@@ -50,6 +52,8 @@ lua_State*      s_L    = nullptr;
 struct LuauModInstance {
     std::string id;
     int         ref;
+    int         thread_ref;
+    lua_State*  thread = nullptr;
     std::string dir;
     std::string entry;
     std::string type;
@@ -119,27 +123,26 @@ static bool luau_protected(const char* ctx, Fn&& fn) {
     return false;
 }
 
-} // namespace
-
-int l_log_level(lua_State* L, PetrichorLogLevel level) {
-    const char* tag = luaL_checkstring(L, 1);
-    const char* msg = luaL_checkstring(L, 2);
-    if (!s_host) return 0;
-    petrichor::plog(level, tag, "%s", msg);
-    return 0;
+static void call_mod_method(lua_State* L, sol::table& instance, const char* method) {
+    sol::protected_function fn = instance[method];
+    if (!fn.valid()) return;
+    auto result = fn(instance);
+    if (!result.valid()) {
+        sol::error err = result;
+        petrichor::plog(PetrichorLogLevel::Error, "luau", "%s() error: %s", method, err.what());
+    }
 }
 
-int l_log_info (lua_State* L) { return l_log_level(L, PetrichorLogLevel::Info);  }
-int l_log_warn (lua_State* L) { return l_log_level(L, PetrichorLogLevel::Warn);  }
-int l_log_err  (lua_State* L) { return l_log_level(L, PetrichorLogLevel::Error); }
-int l_log_debug(lua_State* L) { return l_log_level(L, PetrichorLogLevel::Debug); }
+} // namespace
 
 int l_require_log(lua_State* L) {
-    lua_newtable(L);
-    lua_pushcfunction(L, l_log_info,  "info");  lua_setfield(L, -2, "info");
-    lua_pushcfunction(L, l_log_warn,  "warn");  lua_setfield(L, -2, "warn");
-    lua_pushcfunction(L, l_log_err,   "err");   lua_setfield(L, -2, "err");
-    lua_pushcfunction(L, l_log_debug, "debug"); lua_setfield(L, -2, "debug");
+    sol::state_view lua(L);
+    sol::table t = lua.create_table();
+    t.set_function("info",  [](std::string tag, std::string msg) { petrichor::plog(PetrichorLogLevel::Info,  tag.c_str(), "%s", msg.c_str()); });
+    t.set_function("warn",  [](std::string tag, std::string msg) { petrichor::plog(PetrichorLogLevel::Warn,  tag.c_str(), "%s", msg.c_str()); });
+    t.set_function("err",   [](std::string tag, std::string msg) { petrichor::plog(PetrichorLogLevel::Error, tag.c_str(), "%s", msg.c_str()); });
+    t.set_function("debug", [](std::string tag, std::string msg) { petrichor::plog(PetrichorLogLevel::Debug, tag.c_str(), "%s", msg.c_str()); });
+    sol::stack::push(L, t);
     return 1;
 }
 
@@ -147,14 +150,14 @@ int l_require_log(lua_State* L) {
 
 int l_async_defer(lua_State* L) {
     luaL_checktype(L, 1, LUA_TFUNCTION);
-    petrichor::async::schedule_step(lua_ref(L, 1));
+    petrichor::async::schedule_step(L, lua_ref(L, 1));
     return 0;
 }
 
 int l_async_timer(lua_State* L) {
     float secs = (float)luaL_checknumber(L, 1);
     luaL_checktype(L, 2, LUA_TFUNCTION);
-    petrichor::async::schedule_timer(secs, lua_ref(L, 2));
+    petrichor::async::schedule_timer(L, secs, lua_ref(L, 2));
     return 0;
 }
 
@@ -215,6 +218,18 @@ int l_require(lua_State* L) {
     const char* name = luaL_checkstring(L, 1);
 
     int msgh = push_msgh(L);
+
+    lua_getglobal(L, "_petrichor_modcache_local");
+    if (lua_istable(L, -1)) {
+        lua_getfield(L, -1, name);
+        if (!lua_isnil(L, -1)) {
+            lua_remove(L, -2);
+            lua_remove(L, msgh);
+            return 1;
+        }
+        lua_pop(L, 1);
+    }
+    lua_pop(L, 1);
 
     lua_getfield(L, LUA_REGISTRYINDEX, "_petrichor_modcache");
     if (!lua_istable(L, -1)) {
@@ -331,6 +346,8 @@ bool luau_boot(IPetrichorHost& host) {
     for (auto* e = s_prelude_libs; e->name; e++)
         run_prelude(s_L, e->name, e->src, e->len);
 
+    luaL_sandbox(s_L); // Freezes standard libs to block monkey-patching
+    
     plog(PetrichorLogLevel::Info, "luau", "Luau host started");
     return true;
 }
@@ -349,6 +366,11 @@ bool luau_loadMod(const char* dir, const PetrichorManifest& m, const char* store
 
     const int base = lua_gettop(s_L);
 
+    lua_State* modL = lua_newthread(s_L);
+    const int thread_ref = lua_ref(s_L, -1);
+    lua_pop(s_L, 1);
+    luaL_sandboxthread(modL);
+
     bool known = false;
     for (const auto& d : s_mod_dirs)
         if (d == dir) { known = true; break; }
@@ -358,6 +380,8 @@ bool luau_loadMod(const char* dir, const PetrichorManifest& m, const char* store
     FILE* f = fopen(entryFile.c_str(), "rb");
     if (!f) {
         plog(PetrichorLogLevel::Error, "luau", "entry not found: %s", entryFile.c_str());
+        lua_unref(s_L, thread_ref);
+        lua_settop(s_L, base);
         return false;
     }
 
@@ -367,89 +391,97 @@ bool luau_loadMod(const char* dir, const PetrichorManifest& m, const char* store
     if (sz < 0) {
         fclose(f);
         plog(PetrichorLogLevel::Error, "luau", "cannot read %s", entryFile.c_str());
+        lua_unref(s_L, thread_ref);
+        lua_settop(s_L, base);
         return false;
     }
     std::string src(static_cast<size_t>(sz), '\0');
     src.resize(fread(&src[0], 1, static_cast<size_t>(sz), f));
     fclose(f);
 
-    // Inject per-mod Net & Storage into module cache before running entry
     {
-        lua_getfield(s_L, LUA_REGISTRYINDEX, "_petrichor_modcache");
-        if (!lua_istable(s_L, -1)) {
-            lua_pop(s_L, 1);
-            lua_newtable(s_L);
-            lua_pushvalue(s_L, -1);
-            lua_setfield(s_L, LUA_REGISTRYINDEX, "_petrichor_modcache");
+        lua_getglobal(modL, "_petrichor_modcache_local");
+        if (!lua_istable(modL, -1)) {
+            lua_pop(modL, 1);
+            lua_newtable(modL);
         }
-        petrichor::storage::require_module(s_L, id, dir, store_root);
-        lua_setfield(s_L, -2, "Petrichor.Storage");
+        petrichor::storage::require_module(modL, id, dir, store_root);
+        lua_setfield(modL, -2, "Petrichor.Storage");
 
-        petrichor::net::require_module(s_L, id);
-        lua_setfield(s_L, -2, "Petrichor.Net");
+        petrichor::net::require_module(modL, id);
+        lua_setfield(modL, -2, "Petrichor.Net");
 
-        lua_pop(s_L, 1);
+        lua_setglobal(modL, "_petrichor_modcache_local");
     }
 
-    int msgh = push_msgh(s_L);
+    int msgh = push_msgh(modL);
 
     size_t bytecodeSize = 0;
     char* bytecode = luau_compile(src.c_str(), src.size(), nullptr, &bytecodeSize);
-    const int rc = luau_load(s_L, id, bytecode, bytecodeSize, 0);
+    const int rc = luau_load(modL, id, bytecode, bytecodeSize, 0);
     free(bytecode);
 
     if (rc != LUA_OK) {
-        plog(PetrichorLogLevel::Error, "luau", "compile error in %s: %s", id, lua_tostring(s_L, -1));
+        plog(PetrichorLogLevel::Error, "luau", "compile error in %s: %s", id, lua_tostring(modL, -1));
+        lua_unref(s_L, thread_ref);
         lua_settop(s_L, base);
         return false;
     }
-    if (lua_pcall(s_L, 0, 1, msgh) != LUA_OK) {
-        plog(PetrichorLogLevel::Error, "luau", "runtime error in %s: %s", id, lua_tostring(s_L, -1));
+    if (lua_pcall(modL, 0, 1, msgh) != LUA_OK) {
+        plog(PetrichorLogLevel::Error, "luau", "runtime error in %s: %s", id, lua_tostring(modL, -1));
+        lua_unref(s_L, thread_ref);
         lua_settop(s_L, base);
         return false;
     }
-    lua_remove(s_L, msgh);
+    lua_remove(modL, msgh);
 
-    if (!lua_istable(s_L, -1)) {
+    if (!lua_istable(modL, -1)) {
         plog(PetrichorLogLevel::Error, "luau", "mod '%s' did not return a class table; skipping. Did you forget to return your class table?", id);
+        lua_unref(s_L, thread_ref);
         lua_settop(s_L, base);
         return false;
     }
+
+    sol::state_view lua(modL);
+    sol::table mod_table = sol::stack::get<sol::table>(modL, -1);
 
     static const char* const required[] = { "tick", "shutdown", nullptr };
     for (const char* const* method = required; *method; ++method) {
-        lua_getfield(s_L, -1, *method);
-        const bool ok = lua_isfunction(s_L, -1);
-        lua_pop(s_L, 1);
-        if (!ok) {
+        if (!mod_table[*method].is<sol::function>()) {
             plog(PetrichorLogLevel::Error, "luau", "mod '%s' missing required method '%s'; skipping. Please prefer mod(\"Name\") to raw metatables.", id, *method);
+            lua_unref(s_L, thread_ref);
             lua_settop(s_L, base);
             return false;
         }
     }
 
-    msgh = push_msgh(s_L);
-    lua_getfield(s_L, -2, "new");
-    if (!lua_isfunction(s_L, -1)) {
-        plog(PetrichorLogLevel::Error, "luau", "mod '%s' class has no .new(); skipping. Please prefer mod(\"Name\") to raw metatables.", id);
+    sol::protected_function new_fn = mod_table["new"];
+    if (!new_fn.valid()) {
+        plog(PetrichorLogLevel::Error, "luau", "mod '%s' class has no .new(); skipping.", id);
+        lua_unref(s_L, thread_ref);
         lua_settop(s_L, base);
         return false;
     }
-    if (lua_pcall(s_L, 0, 1, msgh) != LUA_OK) {
-        plog(PetrichorLogLevel::Error, "luau", "mod '%s' new() failed: %s", id, lua_tostring(s_L, -1));
+    auto result = new_fn();
+    if (!result.valid()) {
+        sol::error err = result;
+        plog(PetrichorLogLevel::Error, "luau", "mod '%s' new() failed: %s", id, err.what());
+        lua_unref(s_L, thread_ref);
         lua_settop(s_L, base);
         return false;
     }
-    lua_remove(s_L, msgh);
-    lua_remove(s_L, -2);
 
-    const int ref = lua_ref(s_L, -1);
-    lua_pop(s_L, 1);
+    sol::object instance = result;
+    instance.push();
+    const int ref = lua_ref(modL, -1);
+    lua_pop(modL, 1);
 
     std::error_code ec;
     s_mods.push_back({
         std::string(id),
         ref,
+        thread_ref,
+        modL,
         std::string(dir),
         std::string(entry),
         std::string(type),
@@ -458,6 +490,7 @@ bool luau_loadMod(const char* dir, const PetrichorManifest& m, const char* store
         std::filesystem::last_write_time(entryFile, ec)
     });
 
+    lua_settop(s_L, base);
     plog(PetrichorLogLevel::Info, "luau", "loaded mod: %s", id);
     return true;
 }
@@ -469,28 +502,20 @@ bool luau_unloadMod(const char* id) {
     if (it == s_mods.end()) return false;
 
     petrichor::net::cancel_inflight_for_mod(id);
+    petrichor::async::cancel_pending_for_thread(it->thread);
 
+    lua_State* L = it->thread;
     luau_protected(it->id.c_str(), [&] {
-        lua_rawgeti(s_L, LUA_REGISTRYINDEX, it->ref);
-        int msgh = push_msgh(s_L);
-
-        lua_getfield(s_L, -2, "save");
-        if (lua_isfunction(s_L, -1)) {
-            lua_pushvalue(s_L, -3);
-            if (lua_pcall(s_L, 1, 0, msgh) != LUA_OK) lua_pop(s_L, 1);
-        } else lua_pop(s_L, 1);
-
-        lua_getfield(s_L, -2, "shutdown");
-        lua_pushvalue(s_L, -3);
-        if (lua_pcall(s_L, 1, 0, msgh) != LUA_OK) {
-            plog(PetrichorLogLevel::Error, "luau", "shutdown error in %s: %s",
-                it->id.c_str(), lua_tostring(s_L, -1));
-            lua_pop(s_L, 1);
-        }
-        lua_pop(s_L, 2);
+        lua_rawgeti(L, LUA_REGISTRYINDEX, it->ref);
+        sol::state_view lua(L);
+        sol::table instance = sol::stack::get<sol::table>(L, -1);
+        lua_pop(L, 1);
+        call_mod_method(L, instance, "save");
+        call_mod_method(L, instance, "shutdown");
     });
 
     lua_unref(s_L, it->ref);
+    lua_unref(s_L, it->thread_ref);
     s_mods.erase(it);
     plog(PetrichorLogLevel::Info, id, "mod unloaded.");
     return true;
@@ -517,17 +542,18 @@ void luau_tick(float delta) {
     if (!s_L) return;
     petrichor::async::tick(s_L, delta);
     for (auto& mod : s_mods) {
+        lua_State* L = mod.thread;
         luau_protected(mod.id.c_str(), [&] {
-            lua_rawgeti(s_L, LUA_REGISTRYINDEX, mod.ref);
-            int msgh = push_msgh(s_L);
-            lua_getfield(s_L, -2, "tick");
-            lua_pushvalue(s_L, -3);
-            lua_pushnumber(s_L, delta);
-            if (lua_pcall(s_L, 2, 0, msgh) != LUA_OK) {
-                plog(PetrichorLogLevel::Error, "luau", "tick error in %s: %s", mod.id.c_str(), lua_tostring(s_L, -1));
-                lua_pop(s_L, 1);
+            lua_rawgeti(L, LUA_REGISTRYINDEX, mod.ref);
+            sol::state_view lua(L);
+            sol::table instance = sol::stack::get<sol::table>(L, -1);
+            lua_pop(L, 1);
+            sol::protected_function tick_fn = instance["tick"];
+            auto result = tick_fn(instance, delta);
+            if (!result.valid()) {
+                sol::error err = result;
+                plog(PetrichorLogLevel::Error, "luau", "tick error in %s: %s", mod.id.c_str(), err.what());
             }
-            lua_pop(s_L, 2);
         });
     }
 }
@@ -536,72 +562,71 @@ void luau_fire_event(const char* event, const char* json_payload) {
     if (!s_L || !event || !event[0]) return;
 
     luau_protected("fire_event", [&] {
-        const int base = lua_gettop(s_L);
-        int msgh = push_msgh(s_L);
+        sol::state_view lua(s_L);
 
-        lua_getglobal(s_L, "require");
-        lua_pushstring(s_L, "Petrichor.Events");
-        if (lua_pcall(s_L, 1, 1, msgh) != LUA_OK) {
-            plog(PetrichorLogLevel::Error, "luau", "fire_event: require Events failed: %s. Please inform Petrichor developers.", lua_tostring(s_L, -1));
-            lua_settop(s_L, base);
+        sol::protected_function require_fn = lua["require"];
+
+        auto events_result = require_fn("Petrichor.Events");
+        if (!events_result.valid()) {
+            sol::error err = events_result;
+            plog(PetrichorLogLevel::Error, "luau", "fire_event: require Events failed: %s. Please inform Petrichor developers.", err.what());
             return;
         }
+        sol::table events = events_result;
+        sol::protected_function fire_fn = events["fire"];
 
-        lua_getfield(s_L, -1, "fire");
-        lua_remove(s_L, -2);
-        lua_pushstring(s_L, event);
-
+        sol::object payload;
         if (json_payload && json_payload[0]) {
-            lua_getglobal(s_L, "require");
-            lua_pushstring(s_L, "Petrichor.Json");
-            if (lua_pcall(s_L, 1, 1, msgh) != LUA_OK) {
-                plog(PetrichorLogLevel::Error, "luau", "fire_event: require Json failed: %s. Please inform Petrichor developers.", lua_tostring(s_L, -1));
-                lua_settop(s_L, base);
+            auto json_result = require_fn("Petrichor.Json");
+            if (!json_result.valid()) {
+                sol::error err = json_result;
+                plog(PetrichorLogLevel::Error, "luau", "fire_event: require Json failed: %s. Please inform Petrichor developers.", err.what());
                 return;
             }
-            lua_getfield(s_L, -1, "decode");
-            lua_remove(s_L, -2);
-            lua_pushstring(s_L, json_payload);
-            if (lua_pcall(s_L, 1, 1, msgh) != LUA_OK) {
-                plog(PetrichorLogLevel::Error, "luau", "fire_event: json decode failed: %s", lua_tostring(s_L, -1));
-                lua_settop(s_L, base);
+            sol::table json = json_result;
+            sol::protected_function decode_fn = json["decode"];
+            auto decoded = decode_fn(json_payload);
+            if (!decoded.valid()) {
+                sol::error err = decoded;
+                plog(PetrichorLogLevel::Error, "luau", "fire_event: json decode failed: %s", err.what());
                 return;
+            }
+            sol::object payload = decoded;
+            auto result = fire_fn(event, payload);
+            if (!result.valid()) {
+                sol::error err = result;
+                plog(PetrichorLogLevel::Error, "luau", "fire_event '%s' failed: %s", event, err.what());
             }
         } else {
-            lua_pushnil(s_L);
+            auto result = fire_fn(event, sol::lua_nil);
+            if (!result.valid()) {
+                sol::error err = result;
+                plog(PetrichorLogLevel::Error, "luau", "fire_event '%s' failed: %s", event, err.what());
+            }
         }
 
-        if (lua_pcall(s_L, 2, 0, msgh) != LUA_OK)
-            plog(PetrichorLogLevel::Error, "luau", "fire_event '%s' failed: %s", event, lua_tostring(s_L, -1));
-
-        lua_settop(s_L, base);
+        auto result = fire_fn(event, payload);
+        if (!result.valid()) {
+            sol::error err = result;
+            plog(PetrichorLogLevel::Error, "luau", "fire_event '%s' failed: %s", event, err.what());
+        }
     });
 }
 
 void luau_stop() {
     if (!s_L) return;
     for (auto& mod : s_mods) {
+        lua_State* L = mod.thread;
         luau_protected(mod.id.c_str(), [&] {
-            lua_rawgeti(s_L, LUA_REGISTRYINDEX, mod.ref);
-            int msgh = push_msgh(s_L);
-
-            lua_getfield(s_L, -2, "save");
-            if (lua_isfunction(s_L, -1)) {
-                lua_pushvalue(s_L, -3);
-                if (lua_pcall(s_L, 1, 0, msgh) != LUA_OK) lua_pop(s_L, 1);
-            } else {
-                lua_pop(s_L, 1);
-            }
-
-            lua_getfield(s_L, -2, "shutdown");
-            lua_pushvalue(s_L, -3);
-            if (lua_pcall(s_L, 1, 0, msgh) != LUA_OK) {
-                plog(PetrichorLogLevel::Error, "luau", "shutdown error in %s: %s", mod.id.c_str(), lua_tostring(s_L, -1));
-                lua_pop(s_L, 1);
-            }
-            lua_pop(s_L, 2);
+            lua_rawgeti(L, LUA_REGISTRYINDEX, mod.ref);
+            sol::state_view lua(L);
+            sol::table instance = sol::stack::get<sol::table>(L, -1);
+            lua_pop(L, 1);
+            call_mod_method(L, instance, "save");
+            call_mod_method(L, instance, "shutdown");
         });
         lua_unref(s_L, mod.ref);
+        lua_unref(s_L, mod.thread_ref);
     }
     s_mods.clear();
     petrichor::async::stop(s_L);

@@ -1,3 +1,7 @@
 [submodule "vendor/luau"]
 	path = vendor/luau
 	url = https://github.com/luau-lang/luau
+[submodule "vendor/sol2"]
+	path = vendor/sol2
+	url = https://github.com/Nerixyz/sol2
+	branch = feat/luau

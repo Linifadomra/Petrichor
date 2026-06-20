@@ -43,16 +43,6 @@ struct IPetrichorHost {
     virtual ~IPetrichorHost() = default;
 };
 
-struct PetrichorMixinCtx {
-    void*    self;
-    void*    ret;
-    uint8_t  cancelled;
-    void*    user;
-    void**   args;
-    int      arg_count;
-};
-typedef void (*PetrichorMixinFn)(PetrichorMixinCtx* ctx, void* modctx);
-
 void petrichor_run (IPetrichorHost& host, const char* format = "prm");
 void petrichor_tick(IPetrichorHost& host, float delta);
 void petrichor_stop(IPetrichorHost& host);
