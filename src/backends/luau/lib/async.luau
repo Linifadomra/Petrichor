@@ -37,10 +37,6 @@ local delay = function(seconds)
     return function(step) _sched.timer(seconds, step) end
 end
 
-local on_hook = function(sym, phase)
-    return function(step) _sched.hook(sym, phase, step) end
-end
-
 local sleep = function(seconds)
     return await(delay(seconds))
 end
@@ -50,6 +46,5 @@ return {
     await    = await,
     defer    = defer,
     delay = delay,
-    on_hook  = on_hook,
     sleep    = sleep
 }
