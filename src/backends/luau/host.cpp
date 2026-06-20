@@ -22,6 +22,8 @@
 #include <lualib.h>
 #include <luacode.h>
 
+#include <sol/sol.hpp>
+
 #include <cstring>
 #include <cstdio>
 #include <cstdint>
@@ -135,11 +137,13 @@ int l_log_err  (lua_State* L) { return l_log_level(L, PetrichorLogLevel::Error);
 int l_log_debug(lua_State* L) { return l_log_level(L, PetrichorLogLevel::Debug); }
 
 int l_require_log(lua_State* L) {
-    lua_newtable(L);
-    lua_pushcfunction(L, l_log_info,  "info");  lua_setfield(L, -2, "info");
-    lua_pushcfunction(L, l_log_warn,  "warn");  lua_setfield(L, -2, "warn");
-    lua_pushcfunction(L, l_log_err,   "err");   lua_setfield(L, -2, "err");
-    lua_pushcfunction(L, l_log_debug, "debug"); lua_setfield(L, -2, "debug");
+    sol::state_view lua(L);
+    sol::table t = lua.create_table();
+    t.set_function("info",  [](std::string tag, std::string msg) { petrichor::plog(PetrichorLogLevel::Info,  tag.c_str(), "%s", msg.c_str()); });
+    t.set_function("warn",  [](std::string tag, std::string msg) { petrichor::plog(PetrichorLogLevel::Warn,  tag.c_str(), "%s", msg.c_str()); });
+    t.set_function("err",   [](std::string tag, std::string msg) { petrichor::plog(PetrichorLogLevel::Error, tag.c_str(), "%s", msg.c_str()); });
+    t.set_function("debug", [](std::string tag, std::string msg) { petrichor::plog(PetrichorLogLevel::Debug, tag.c_str(), "%s", msg.c_str()); });
+    sol::stack::push(L, t);
     return 1;
 }
 

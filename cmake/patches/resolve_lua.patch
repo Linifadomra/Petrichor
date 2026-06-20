@@ -1,0 +1,16 @@
+diff --git a/include/sol/compatibility/lua_version.hpp b/include/sol/compatibility/lua_version.hpp
+index ccb1101e..91c8ba9a 100644
+--- a/include/sol/compatibility/lua_version.hpp
++++ b/include/sol/compatibility/lua_version.hpp
+@@ -38,6 +38,11 @@
+ 		#include <lauxlib.h>
+ 		#include <lualib.h>
+ 	#endif
++#elif SOL_LUAU
++	extern "C" {
++		#include <lua.h>
++		#include <lualib.h>
++	}
+ #elif SOL_IS_ON(SOL_USE_LUA_HPP)
+ 	#if __has_include(<lua/lua.hpp>)
+ 		#include <lua/lua.hpp>
