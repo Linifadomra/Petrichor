@@ -121,20 +121,17 @@ static bool luau_protected(const char* ctx, Fn&& fn) {
     return false;
 }
 
-} // namespace
-
-int l_log_level(lua_State* L, PetrichorLogLevel level) {
-    const char* tag = luaL_checkstring(L, 1);
-    const char* msg = luaL_checkstring(L, 2);
-    if (!s_host) return 0;
-    petrichor::plog(level, tag, "%s", msg);
-    return 0;
+static void call_mod_method(lua_State* L, sol::table& instance, const char* method) {
+    sol::protected_function fn = instance[method];
+    if (!fn.valid()) return;
+    auto result = fn(instance);
+    if (!result.valid()) {
+        sol::error err = result;
+        petrichor::plog(PetrichorLogLevel::Error, "luau", "%s() error: %s", method, err.what());
+    }
 }
 
-int l_log_info (lua_State* L) { return l_log_level(L, PetrichorLogLevel::Info);  }
-int l_log_warn (lua_State* L) { return l_log_level(L, PetrichorLogLevel::Warn);  }
-int l_log_err  (lua_State* L) { return l_log_level(L, PetrichorLogLevel::Error); }
-int l_log_debug(lua_State* L) { return l_log_level(L, PetrichorLogLevel::Debug); }
+} // namespace
 
 int l_require_log(lua_State* L) {
     sol::state_view lua(L);
@@ -420,33 +417,34 @@ bool luau_loadMod(const char* dir, const PetrichorManifest& m, const char* store
         return false;
     }
 
+    sol::state_view lua(s_L);
+    sol::table mod_table = sol::stack::get<sol::table>(s_L, -1);
+
     static const char* const required[] = { "tick", "shutdown", nullptr };
     for (const char* const* method = required; *method; ++method) {
-        lua_getfield(s_L, -1, *method);
-        const bool ok = lua_isfunction(s_L, -1);
-        lua_pop(s_L, 1);
-        if (!ok) {
+        if (!mod_table[*method].is<sol::function>()) {
             plog(PetrichorLogLevel::Error, "luau", "mod '%s' missing required method '%s'; skipping. Please prefer mod(\"Name\") to raw metatables.", id, *method);
             lua_settop(s_L, base);
             return false;
         }
     }
 
-    msgh = push_msgh(s_L);
-    lua_getfield(s_L, -2, "new");
-    if (!lua_isfunction(s_L, -1)) {
-        plog(PetrichorLogLevel::Error, "luau", "mod '%s' class has no .new(); skipping. Please prefer mod(\"Name\") to raw metatables.", id);
+    sol::protected_function new_fn = mod_table["new"];
+    if (!new_fn.valid()) {
+        plog(PetrichorLogLevel::Error, "luau", "mod '%s' class has no .new(); skipping.", id);
         lua_settop(s_L, base);
         return false;
     }
-    if (lua_pcall(s_L, 0, 1, msgh) != LUA_OK) {
-        plog(PetrichorLogLevel::Error, "luau", "mod '%s' new() failed: %s", id, lua_tostring(s_L, -1));
+    auto result = new_fn();
+    if (!result.valid()) {
+        sol::error err = result;
+        plog(PetrichorLogLevel::Error, "luau", "mod '%s' new() failed: %s", id, err.what());
         lua_settop(s_L, base);
         return false;
     }
-    lua_remove(s_L, msgh);
-    lua_remove(s_L, -2);
 
+    sol::object instance = result;
+    instance.push();
     const int ref = lua_ref(s_L, -1);
     lua_pop(s_L, 1);
 
@@ -476,22 +474,11 @@ bool luau_unloadMod(const char* id) {
 
     luau_protected(it->id.c_str(), [&] {
         lua_rawgeti(s_L, LUA_REGISTRYINDEX, it->ref);
-        int msgh = push_msgh(s_L);
-
-        lua_getfield(s_L, -2, "save");
-        if (lua_isfunction(s_L, -1)) {
-            lua_pushvalue(s_L, -3);
-            if (lua_pcall(s_L, 1, 0, msgh) != LUA_OK) lua_pop(s_L, 1);
-        } else lua_pop(s_L, 1);
-
-        lua_getfield(s_L, -2, "shutdown");
-        lua_pushvalue(s_L, -3);
-        if (lua_pcall(s_L, 1, 0, msgh) != LUA_OK) {
-            plog(PetrichorLogLevel::Error, "luau", "shutdown error in %s: %s",
-                it->id.c_str(), lua_tostring(s_L, -1));
-            lua_pop(s_L, 1);
-        }
-        lua_pop(s_L, 2);
+        sol::state_view lua(s_L);
+        sol::table instance = sol::stack::get<sol::table>(s_L, -1);
+        lua_pop(s_L, 1);
+        call_mod_method(s_L, instance, "save");
+        call_mod_method(s_L, instance, "shutdown");
     });
 
     lua_unref(s_L, it->ref);
