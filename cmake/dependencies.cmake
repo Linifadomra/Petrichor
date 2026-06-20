@@ -41,18 +41,13 @@ set(LUA_INCLUDE_DIR
 
 # PATCH: Fix sol2 Luau header resolution
 set(_sol2_patch ${CMAKE_CURRENT_SOURCE_DIR}/cmake/patches/resolve_lua.patch)
-set(_sol2_patched_file ${CMAKE_CURRENT_SOURCE_DIR}/vendor/sol2/include/sol/compatibility/lua_version.hpp)
-execute_process(
-    COMMAND patch --dry-run -p1 -i ${CMAKE_CURRENT_SOURCE_DIR}/cmake/patches/resolve_lua.patch
-    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/vendor/sol2
-    RESULT_VARIABLE _patch_dry_run
-    OUTPUT_QUIET ERROR_QUIET
-)
-if(_patch_dry_run EQUAL 0)
-    execute_process(
-        COMMAND patch -p1 -i ${CMAKE_CURRENT_SOURCE_DIR}/cmake/patches/resolve_lua.patch
-        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/vendor/sol2
+set(_sol2_patched_marker ${CMAKE_CURRENT_SOURCE_DIR}/vendor/sol2/.luau_patch_applied)
+if(NOT EXISTS ${_sol2_patched_marker})
+    file(PATCH
+        INPUT ${CMAKE_CURRENT_SOURCE_DIR}/vendor/sol2/include/sol/compatibility/lua_version.hpp
+        PATCH_FILE ${_sol2_patch}
     )
+    file(TOUCH ${_sol2_patched_marker})
 endif()
 
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/vendor/sol2)
