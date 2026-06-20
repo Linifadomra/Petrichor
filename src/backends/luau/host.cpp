@@ -544,10 +544,10 @@ void luau_tick(float delta) {
     for (auto& mod : s_mods) {
         lua_State* L = mod.thread;
         luau_protected(mod.id.c_str(), [&] {
-            lua_rawgeti(s_L, LUA_REGISTRYINDEX, mod.ref);
-            sol::state_view lua(s_L);
-            sol::table instance = sol::stack::get<sol::table>(s_L, -1);
-            lua_pop(s_L, 1);
+            lua_rawgeti(L, LUA_REGISTRYINDEX, mod.ref);
+            sol::state_view lua(L);
+            sol::table instance = sol::stack::get<sol::table>(L, -1);
+            lua_pop(L, 1);
             sol::protected_function tick_fn = instance["tick"];
             auto result = tick_fn(instance, delta);
             if (!result.valid()) {
