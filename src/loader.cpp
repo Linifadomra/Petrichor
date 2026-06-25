@@ -18,6 +18,11 @@ namespace {
 std::vector<IBackend*> s_backends;
 std::vector<PetrichorManifest> s_manifests;
 
+bool isHiddenEntryName(const std::filesystem::path& path) {
+    const std::string name = path.filename().string();
+    return !name.empty() && name[0] == '.';
+}
+
 void copyJsonString(const nlohmann::json& doc, const char* key, char* out, size_t outSize) {
     if (!doc.contains(key) || !doc[key].is_string()) return;
     const auto s = doc[key].get<std::string>();
@@ -122,6 +127,7 @@ void loader_run(IPetrichorHost& host, const char* format) {
     int count = 0;
     for (const auto& entry : fs::directory_iterator(modsDir, ec)) {
         if (ec) break;
+        if (isHiddenEntryName(entry.path())) continue;
         std::string dir = entry.path().string();
         
         std::string extractedDir;
