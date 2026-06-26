@@ -43,10 +43,15 @@ set(LUA_INCLUDE_DIR
 set(_sol2_patch ${CMAKE_CURRENT_SOURCE_DIR}/cmake/patches/resolve_lua.patch)
 set(_sol2_patched_marker ${CMAKE_CURRENT_SOURCE_DIR}/vendor/sol2/.luau_patch_applied)
 if(NOT EXISTS ${_sol2_patched_marker})
-    file(PATCH
-        INPUT ${CMAKE_CURRENT_SOURCE_DIR}/vendor/sol2/include/sol/compatibility/lua_version.hpp
-        PATCH_FILE ${_sol2_patch}
+    find_package(Git REQUIRED)
+    execute_process(
+        COMMAND ${GIT_EXECUTABLE} apply ${_sol2_patch} --directory=vendor/sol2
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        RESULT_VARIABLE _patch_result
     )
+    if(NOT _patch_result EQUAL 0)
+        message(FATAL_ERROR "Failed to apply sol2 Luau patch")
+    endif()
     file(TOUCH ${_sol2_patched_marker})
 endif()
 
