@@ -32,11 +32,29 @@
 #include <json.hpp>
 #include <string>
 #include <vector>
+#include "petrichor/petrichor_version.hpp"
+
+petrichor::SemVer petrichor::g_host_version = petrichor::SemVer(0,0,0,false);
 
 namespace {
 
 std::vector<IBackend*> s_backends;
 std::vector<PetrichorManifest> s_manifests;
+static const petrichor::SemVer PETRICHOR_VERSION = petrichor::SemVer(PETRICHOR_VERSION_STRING);
+
+void store_game_version(IPetrichorHost& host) {
+    if (strcmp(host.version(), "unversioned") == 0) {
+        petrichor::plog(PetrichorLogLevel::Warn, 
+            "%s has no version. Automatic versioning will be unavailable. Ask project developers to fix the issue.", 
+            host.project_name());
+        petrichor::g_host_version = petrichor::SemVer(0, 0, 0, false);
+        return;
+    }
+
+    petrichor::g_host_version = petrichor::SemVer(host.version());
+    
+    if (!petrichor::g_host_version.valid) petrichor::plog(PetrichorLogLevel::Warn, "%s parsed as 0.0.0. Automatic versioning will be unavailable. Ask project developers to fix the issue.", host.project_name());
+}
 
 bool isHiddenEntryName(const std::filesystem::path& path) {
     const std::string name = path.filename().string();
@@ -74,7 +92,9 @@ bool readManifest(const char* dir, PetrichorManifest& m) {
     copyJsonString(doc, "type", m.type, sizeof(m.type));
     copyJsonString(doc, "entry", m.entry, sizeof(m.entry));
     copyJsonString(doc, "author",  m.author,  sizeof(m.author));
-    copyJsonString(doc, "version", m.version, sizeof(m.version));
+    copyJsonString(doc, "version", m.version, sizeof(m.version)); // Package version
+    copyJsonString(doc, "hostVersion", m.hostVersion,     sizeof(m.hostVersion)); // Host project version
+    copyJsonString(doc, "engineVersion", m.engineVersion,     sizeof(m.engineVersion)); // Petrichor API version
     copyJsonString(doc, "kind", m.kind, sizeof(m.kind));
 
     // fallback: derive from type if kind not specified
@@ -91,7 +111,6 @@ bool readManifest(const char* dir, PetrichorManifest& m) {
     if (doc.contains("conflicts") && doc["conflicts"].is_array())
         for (const auto& c : doc["conflicts"])
             if (c.is_string()) m.conflicts.push_back(c.get<std::string>());    
-    m.apiVersion = doc.value("apiVersion", 1);
     return m.id[0] && m.type[0];
 }
 
@@ -166,10 +185,46 @@ void loader_run(IPetrichorHost& host, const char* format) {
         
         PetrichorManifest m = {};
         if (!readManifest(dir.c_str(), m)) continue;
-        if (m.apiVersion > PETRICHOR_API_VERSION) {
-            petrichor::plog(PetrichorLogLevel::Warn, "mod", "%s needs api %d", m.id, m.apiVersion);
-            continue;
+        if (PETRICHOR_VERSION.valid && m.engineVersion[0]) {
+            auto prVersion = petrichor::SemVer::parse(m.engineVersion);
+            if (prVersion > PETRICHOR_VERSION) {
+                petrichor::plog(PetrichorLogLevel::Error, "mod",
+                    "%s requires Petrichor %s, running %s. Skipping...",
+                    m.id, m.engineVersion, PETRICHOR_VERSION_STRING);
+                continue;
+            } else if (prVersion.major < PETRICHOR_VERSION.major) {
+                int majorBehind = PETRICHOR_VERSION.major - prVersion.major;
+                petrichor::plog(PetrichorLogLevel::Warn, "mod",
+                    "%s was built against Petrichor %s (%d major version(s) behind, running %s). May be unstable.",
+                    m.id, m.engineVersion, majorBehind, PETRICHOR_VERSION_STRING);
+            } else if (prVersion.minor < PETRICHOR_VERSION.minor) {
+                int minorBehind = PETRICHOR_VERSION.minor - prVersion.minor;
+                petrichor::plog(PetrichorLogLevel::Warn, "mod",
+                    "%s was built against Petrichor %s (%d minor version(s) behind, running %s).",
+                    m.id, m.engineVersion, minorBehind, PETRICHOR_VERSION_STRING);
+            }
         }
+
+        if (petrichor::g_host_version.valid && m.hostVersion[0]) {
+            auto hVersion = petrichor::SemVer::parse(m.hostVersion);
+            if (hVersion > petrichor::g_host_version) {
+                petrichor::plog(PetrichorLogLevel::Error, "mod",
+                    "%s requires %s %s, running %s. Skipping...",
+                    m.id, host.project_name(), m.hostVersion, host.version());
+                continue;
+            } else if (hVersion.major < petrichor::g_host_version.major) {
+                int majorBehind = petrichor::g_host_version.major - hVersion.major;
+                petrichor::plog(PetrichorLogLevel::Warn, "mod",
+                    "%s was built against %s %s (%d major version(s) behind, running %s). May be unstable.",
+                    m.id, host.project_name(), m.hostVersion, majorBehind, host.version());
+            } else if (hVersion.minor < petrichor::g_host_version.minor) {
+                int minorBehind = petrichor::g_host_version.minor - hVersion.minor;
+                petrichor::plog(PetrichorLogLevel::Warn, "mod",
+                    "%s was built against %s %s (%d minor version(s) behind, running %s).",
+                    m.id, host.project_name(), m.hostVersion, minorBehind, host.version());
+            }
+        }
+        
         IBackend* b = backendFor(m.type);
         if (!b) {
             petrichor::plog(PetrichorLogLevel::Error, "mod", "%s: no backend for type '%s'", m.id, m.type);
@@ -193,6 +248,7 @@ void petrichor_register_backend(IBackend* b) {
 void petrichor_run(IPetrichorHost& host, const char* format) {
     petrichor::g_host = &host;
     petrichor::luau_backend_register();
+    store_game_version(host);
     loader_run(host,format);
 }
 

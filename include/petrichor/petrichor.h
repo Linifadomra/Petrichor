@@ -22,8 +22,6 @@
 #include <string>
 #include <vector>
 
-#define PETRICHOR_API_VERSION 3
-
 /**
  * @brief Manifest describing a Petrichor package.
  *
@@ -53,6 +51,12 @@ struct PetrichorManifest {
     /** Package version string. */
     char version[32];
 
+    /** Host-project version string. */
+    char hostVersion[32];
+
+    /** Petrichor engine version string. */
+    char engineVersion[32];
+
     /** Package description. */
     std::string desc;
 
@@ -61,9 +65,6 @@ struct PetrichorManifest {
 
     /** Absolute path to the package's root directory. */
     std::string dir;
-
-    /** Target Petrichor API version. */
-    int apiVersion;
 };
 
 struct PetrichorEvents {
@@ -143,6 +144,26 @@ struct IPetrichorHost {
      * Hosts that do not provide persistent storage should return nullptr.
      */
     virtual const char* store_dir() const { return nullptr; }
+
+    /**
+     * @brief Returns the current project version.
+     * @return Client version or "unversioned"
+     *
+     * Hosts should ALWAYS include a version. It is
+     * recommended to generate it from your CMake once and
+     * use it all over. Used for automatic version checking
+     */
+    virtual const char* version() const { return "unversioned"; }
+
+        /**
+     * @brief Returns the current project name.
+     * @return Project name or "unnamed"
+     *
+     * Hosts should ALWAYS include a project name. It is
+     * used for error outputs. 
+     */
+    virtual const char* project_name() const { return "unnamed"; }
+
 
     /** @brief Virtual destructor. */
     virtual ~IPetrichorHost() = default;

@@ -1,7 +1,11 @@
 cmake_minimum_required(VERSION 3.14)
-project(petrichor LANGUAGES CXX C)
+project(petrichor
+    VERSION 1.0.0
+    DESCRIPTION "Petrichor runtime library"
+    LANGUAGES CXX C
+)
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/dependencies.cmake)
@@ -20,12 +24,23 @@ add_library(petrichor STATIC
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_luau.cmake)
 petrichor_embed_luau(petrichor ${CMAKE_CURRENT_SOURCE_DIR}/src/backends/luau/lib)
 
-target_include_directories(petrichor
-    PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/include
-    PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src
+# Generate version header
+configure_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/petrichor_version.hpp.in
+    ${CMAKE_CURRENT_BINARY_DIR}/include/petrichor/petrichor_version.hpp
+    @ONLY
 )
 
-target_link_libraries(petrichor 
+target_include_directories(petrichor
+    PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/include>
+        $<INSTALL_INTERFACE:include>
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+
+target_link_libraries(petrichor
     PRIVATE
         miniz
     PUBLIC
@@ -44,6 +59,37 @@ if(UNIX AND NOT APPLE)
 elseif(WIN32)
     target_link_libraries(petrichor PRIVATE ole32)
 endif()
+
+# ── Installation ─────────────────────────────────────────────────────────────
+include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
+
+install(TARGETS petrichor
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+)
+
+install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/include/
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+)
+
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/include/petrichor/petrichor_version.hpp
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/petrichor
+)
+
+write_basic_package_version_file(
+    ${CMAKE_CURRENT_BINARY_DIR}/PetrichorConfigVersion.cmake
+    VERSION ${PROJECT_VERSION}
+    COMPATIBILITY SameMajorVersion
+)
+
+install(FILES
+    ${CMAKE_CURRENT_BINARY_DIR}/PetrichorConfigVersion.cmake
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/petrichor
+)
+
+# ── Tests ────────────────────────────────────────────────────────────────────
 
 option(PETRICHOR_TESTS "Build petrichor tests" OFF)
 if(PETRICHOR_TESTS)

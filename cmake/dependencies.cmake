@@ -55,6 +55,7 @@ if(NOT EXISTS ${_sol2_patched_marker})
     file(TOUCH ${_sol2_patched_marker})
 endif()
 
+
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/vendor/sol2)
 
-target_compile_definitions(sol_luau INTERFACE SOL_LUAU=1)
+target_compile_definitions(sol_luau INTERFACE SOL_LUAU=1 SOL_NO_LUA_HPP=1)

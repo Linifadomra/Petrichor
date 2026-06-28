@@ -35,6 +35,24 @@ using fxr_char = char;
 
 namespace petrichor {
 
+struct SemVer {
+    int major{}, minor{}, patch{};
+    bool valid;
+
+    SemVer() = default;
+    SemVer(int major, int minor, int patch, bool valid) : major(major), minor(minor), patch(patch), valid(valid) {}
+    SemVer(const char* v) {
+        std::sscanf(v, "%d.%d.%d", &this->major, &this->minor, &this->patch);
+        this->valid = !(major == 0 && minor == 0 && patch == 0);
+    }
+
+    static SemVer parse(const char* v) { return SemVer(v); }
+
+    auto operator<=>(const SemVer&) const = default;
+    bool operator==(const SemVer&) const = default;
+};
+
+extern SemVer g_host_version;
 extern IPetrichorHost* g_host;
 
 void plog(PetrichorLogLevel level, const char* tag, const char* fmt, ...);
