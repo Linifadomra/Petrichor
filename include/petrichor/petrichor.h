@@ -132,13 +132,6 @@ struct IPetrichorHost {
     virtual void subscribe_events(const PetrichorEvents* ev) = 0;
 
     /**
-     * @brief Returns an optional pointer to the native game API.
-     *
-     * Hosts that do not expose a game API should return nullptr.
-     */
-    virtual void* game_api() const { return nullptr; }
-
-    /**
      * @brief Returns the directory used for persistent package storage.
      *
      * Hosts that do not provide persistent storage should return nullptr.
@@ -155,7 +148,7 @@ struct IPetrichorHost {
      */
     virtual const char* version() const { return "unversioned"; }
 
-        /**
+    /**
      * @brief Returns the current project name.
      * @return Project name or "unnamed"
      *
