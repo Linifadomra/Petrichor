@@ -144,8 +144,8 @@ static bool luau_protected(const char* ctx, Fn&& fn) {
 }
 
 struct ModContextGuard {
-    ModContextGuard(const char* dir, const char* id) { s_host->onModContextEnter(dir, id); }
-    ~ModContextGuard() { s_host->onModContextLeave(); }
+    ModContextGuard(const char* dir, const char* id) { s_host->mod_ctx_enter(dir, id); }
+    ~ModContextGuard() { s_host->mod_ctx_exit(); }
 };
 
 static void call_mod_method(lua_State* L, sol::table& instance, const char* method,
