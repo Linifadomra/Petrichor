@@ -102,13 +102,6 @@ struct IPetrichorHost {
     virtual const char* temp_dir() const = 0;
 
     /**
-     * @brief Resolves a host-exported symbol by name.
-     * @param sym Null-terminated symbol name.
-     * @return Pointer to the resolved symbol, or nullptr if unavailable.
-     */
-    virtual void* resolve(const char* sym) const = 0;
-
-    /**
      * @brief Returns the directory used for persistent package storage.
      *
      * Hosts that do not provide persistent storage should return nullptr.
