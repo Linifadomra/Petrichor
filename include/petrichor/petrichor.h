@@ -102,13 +102,6 @@ struct IPetrichorHost {
     virtual const char* temp_dir() const = 0;
 
     /**
-     * @brief Allocates memory owned by the host.
-     * @param bytes Number of bytes to allocate.
-     * @return Pointer to the allocated memory, or nullptr on failure.
-     */
-    virtual void* alloc(uint32_t bytes) = 0;
-
-    /**
      * @brief Resolves a host-exported symbol by name.
      * @param sym Null-terminated symbol name.
      * @return Pointer to the resolved symbol, or nullptr if unavailable.
