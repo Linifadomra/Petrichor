@@ -102,34 +102,11 @@ struct IPetrichorHost {
     virtual const char* temp_dir() const = 0;
 
     /**
-     * @brief Allocates memory owned by the host.
-     * @param bytes Number of bytes to allocate.
-     * @return Pointer to the allocated memory, or nullptr on failure.
-     */
-    virtual void* alloc(uint32_t bytes) = 0;
-
-    /**
      * @brief Resolves a host-exported symbol by name.
      * @param sym Null-terminated symbol name.
      * @return Pointer to the resolved symbol, or nullptr if unavailable.
      */
     virtual void* resolve(const char* sym) const = 0;
-
-    /**
-     * @brief Invokes a host-exported function dynamically.
-     * @param sym Symbol name to invoke.
-     * @param args Array of argument pointers.
-     * @param n Number of arguments.
-     * @param ret_out Optional output location for the return value.
-     * @return Host-defined status code.
-     */
-    virtual int call(const char* sym, void** args, uint32_t n, void* ret_out) = 0;
-
-    /**
-     * @brief Registers event callbacks with the host.
-     * @param ev Event callback table.
-     */
-    virtual void subscribe_events(const PetrichorEvents* ev) = 0;
 
     /**
      * @brief Returns the directory used for persistent package storage.
@@ -147,6 +124,28 @@ struct IPetrichorHost {
      * use it all over. Used for automatic version checking
      */
     virtual const char* version() const { return "unversioned"; }
+
+    /**
+     * @brief Notifies the host that a mod's context is becoming active.
+     *
+     * Called before invoking into a mod's Luau code (e.g. lifecycle
+     * callbacks like tick/save/shutdown), so the host can attribute
+     * subsequent behavior (logging, crash reports, stack traces) to the
+     * correct mod. Paired with a matching mod_ctx_exit() call once
+     * the mod invocation completes.
+     *
+     * @param dir Filesystem directory of the mod entering context.
+     * @param id Unique identifier of the mod entering context.
+     */
+    virtual void mod_ctx_enter(const char* dir, const char* id) {}
+
+    /**
+     * @brief Notifies the host that the current mod context is ending.
+     *
+     * Called after a mod invocation started by mod_ctx_enter()
+     * completes, so the host can clear any active-mod attribution state.
+     */
+    virtual void mod_ctx_exit() {}
 
     /**
      * @brief Returns the current project name.
