@@ -52,9 +52,6 @@
 #include <algorithm>
 #include <vector>
 
-extern "C" void crLuau_setActiveMod(const char* dir, const char* id);
-extern "C" void crLuau_clearActiveMod(void);
-
 static const struct { const char* name; const unsigned char* src; unsigned int len; } s_prelude_libs[] = {
     { "Petrichor.Standard", standard_luau,      standard_luau_len      },
     { "Petrichor.Math",     math_luau,          math_luau_len          },
@@ -147,8 +144,8 @@ static bool luau_protected(const char* ctx, Fn&& fn) {
 }
 
 struct ModContextGuard {
-    ModContextGuard(const char* dir, const char* id) { crLuau_setActiveMod(dir, id); }
-    ~ModContextGuard() { crLuau_clearActiveMod(); }
+    ModContextGuard(const char* dir, const char* id) { s_host->onModContextEnter(dir, id); }
+    ~ModContextGuard() { s_host->onModContextLeave(); }
 };
 
 static void call_mod_method(lua_State* L, sol::table& instance, const char* method,
