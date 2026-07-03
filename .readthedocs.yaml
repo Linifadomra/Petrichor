@@ -9,3 +9,5 @@ build:
 
     - git submodule update --init --recursive
     - ./doxygen docs/Doxyfile
+    - mkdir -p $READTHEDOCS_OUTPUT/html/assets
+    - cp -r assets/* $READTHEDOCS_OUTPUT/html/assets/
