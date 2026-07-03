@@ -67,12 +67,6 @@ struct PetrichorManifest {
     std::string dir;
 };
 
-struct PetrichorEvents {
-    void (*pre_frame)(void);
-    void (*post_frame)(void);
-    void (*scene_load)(const char* stage, int32_t point);
-};
-
 /**
  * @brief Petrichor logging verbosity level
  */
