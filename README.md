@@ -50,5 +50,5 @@ Petrichor/
 
 ## Integration
 
-Simply wire in your project information & implementations of `IPetrichorHost`, and call into the functions documented in `petrichor.h`. Clean documentation can be found on our ReadTheDocs page.
+Simply wire in your project information & implementations of `IPetrichorHost`, and call into the functions documented in `petrichor.h`. Clean documentation can be found on our [ReadTheDocs](https://petrichor.readthedocs.io/en/latest/) page.
 
