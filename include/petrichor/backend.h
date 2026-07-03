@@ -37,3 +37,5 @@ struct IBackend {
 };
 
 void petrichor_register_backend(IBackend* b);
+
+/// \endcond

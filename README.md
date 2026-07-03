@@ -1,4 +1,5 @@
-<div align="center"> <img src="assets/svg/Blue_petrichor.svg" alt="Logo" width="400"/> </div>
+<div align="center"> <img src="assets/svg/Blue_petrichor.svg" alt="" width="400"/> </div>
+<div align="center"> <img src="Blue_petrichor.svg" alt="" width="400"/> </div>
 
 # Petrichor
 

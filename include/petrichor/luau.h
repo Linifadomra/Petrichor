@@ -30,3 +30,5 @@ namespace petrichor {
 
     void luau_fire_event(const char* event, const char* json_payload);
 }
+
+/// \endcond
