@@ -57,7 +57,7 @@ endif()
 if(UNIX AND NOT APPLE)
     target_link_libraries(petrichor PRIVATE pthread m dl)
 elseif(WIN32)
-    target_link_libraries(petrichor PRIVATE ole32)
+    target_link_libraries(petrichor PRIVATE ole32 ws2_32)
 endif()
 
 # ── Installation ─────────────────────────────────────────────────────────────
