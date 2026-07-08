@@ -147,7 +147,7 @@ std::string lower(std::string text) {
     return text;
 }
 
-void loader_run(IPetrichorHost& host, const char* format) {
+void loader_run(IPetrichorHost& host, std::vector<std::string> formats) {
     for (auto* b : s_backends)
         if (!b->init(host)) petrichor::plog(PetrichorLogLevel::Error, "mod", "backend '%s' failed to init", b->name());
 
@@ -161,16 +161,34 @@ void loader_run(IPetrichorHost& host, const char* format) {
 
     remove_temps(host);
 
-    const std::string ext = format ? (std::string(".") + format) : "";
+    std::vector<std::string> exts;
+    exts.reserve(formats.size());
+    for (const auto& f : formats) {
+        if (f.empty()) continue;
+        std::string e = lower(f);
+        if (e[0] != '.') e = "." + e;
+        exts.push_back(std::move(e));
+    }
+
+    std::string extsDisplay;
+    for (size_t i = 0; i < exts.size(); ++i) {
+        if (i) extsDisplay += ", ";
+        extsDisplay += exts[i];
+    }
+
+    auto matchesFormat = [&exts](const std::string& extension) {
+        std::string e = lower(extension);
+        return std::find(exts.begin(), exts.end(), e) != exts.end();
+    };
 
     int count = 0;
     for (const auto& entry : fs::directory_iterator(modsDir, ec)) {
         if (ec) break;
         if (isHiddenEntryName(entry.path())) continue;
         std::string dir = entry.path().string();
-        
+
         std::string extractedDir;
-        if (!ext.empty() && lower(entry.path().extension().string()) == lower(ext)) {
+        if (!exts.empty() && matchesFormat(entry.path().extension().string())) {
             const char* tmpRoot = host.temp_dir();
             extractedDir = archive_extract(dir.c_str(), (fs::path(tmpRoot) / "petrichor").string().c_str());
             if (extractedDir.empty()) {
@@ -179,10 +197,10 @@ void loader_run(IPetrichorHost& host, const char* format) {
             }
             dir = extractedDir;
         } else if (!entry.is_directory()) {
-            petrichor::plog(PetrichorLogLevel::Warn, "mod", "unexpected file in mods folder: '%s'. file format should be: '%s'", dir.c_str(), ext.c_str());
+            petrichor::plog(PetrichorLogLevel::Warn, "mod", "unexpected file in mods folder: '%s'. file format should be one of: '%s'", dir.c_str(), extsDisplay.c_str());
             continue;
         }
-        
+
         PetrichorManifest m = {};
         if (!readManifest(dir.c_str(), m)) continue;
         if (PETRICHOR_VERSION.valid && m.engineVersion[0]) {
@@ -224,7 +242,7 @@ void loader_run(IPetrichorHost& host, const char* format) {
                     m.id, host.project_name(), m.hostVersion, minorBehind, host.version());
             }
         }
-        
+
         IBackend* b = backendFor(m.type);
         if (!b) {
             petrichor::plog(PetrichorLogLevel::Error, "mod", "%s: no backend for type '%s'", m.id, m.type);
@@ -245,11 +263,11 @@ void petrichor_register_backend(IBackend* b) {
     if (b) s_backends.push_back(b);
 }
 
-void petrichor_run(IPetrichorHost& host, const char* format) {
+void petrichor_run(IPetrichorHost& host, std::vector<std::string> formats) {
     petrichor::g_host = &host;
     petrichor::luau_backend_register();
     store_game_version(host);
-    loader_run(host,format);
+    loader_run(host,formats);
 }
 
 void petrichor_stop(IPetrichorHost& host) {
