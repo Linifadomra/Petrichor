@@ -155,9 +155,9 @@ struct IPetrichorHost {
  * interface.
  *
  * @param host Host implementation providing runtime services.
- * @param format Package manifest format identifier. Defaults to "prm".
+ * @param formats Package manifest format identifiers. Defaults to {"prm","zip"}.
  */
-void petrichor_run(IPetrichorHost& host, const char* format = "prm");
+void petrichor_run(IPetrichorHost& host, std::vector<std::string> formats = {"prm","zip"});
 
 /**
  * @brief Advances the Petrichor runtime by one frame.

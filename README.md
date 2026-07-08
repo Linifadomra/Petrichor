@@ -21,7 +21,7 @@ The language we chose is [Luau, a fork of Lua 5.1](https://luau.org/). We chose 
 ## Architecture
 
 ```
-petrichor_run(IPetrichorHost& host, const char* format)
+petrichor_run(IPetrichorHost& host, std::vector<std::string> formats)
 ↓
 Loader      ← Iterates through mods folder
 ↓
