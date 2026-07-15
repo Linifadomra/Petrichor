@@ -204,6 +204,14 @@ void petrichor_reload_mod(const char* id);
 std::vector<std::string> petrichor_poll_changes();
 
 /**
+ * @brief Re-scans the mods directory for added or removed packages.
+ *
+ * @param host Host implementation.
+ * @param formats Package manifest format identifiers, same as petrichor_run().
+ */
+void petrichor_rescan_dir(IPetrichorHost& host, std::vector<std::string> formats = {"prm","zip"});
+
+/**
  * @brief Returns metadata for all discovered packages.
  *
  * @return Collection of package manifests.
