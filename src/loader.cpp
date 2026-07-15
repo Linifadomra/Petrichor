@@ -147,6 +147,107 @@ std::string lower(std::string text) {
     return text;
 }
 
+std::vector<std::string> normalizeExts(const std::vector<std::string>& formats) {
+    std::vector<std::string> exts;
+    exts.reserve(formats.size());
+    for (const auto& f : formats) {
+        if (f.empty()) continue;
+        std::string e = lower(f);
+        if (e[0] != '.') e = "." + e;
+        exts.push_back(std::move(e));
+    }
+    return exts;
+}
+
+bool resolveEntry(IPetrichorHost& host, const std::filesystem::directory_entry& entry,
+                   const std::vector<std::string>& exts, const std::string& extsDisplay,
+                   std::string& outDir, PetrichorManifest& outManifest) {
+    namespace fs = std::filesystem;
+    if (isHiddenEntryName(entry.path())) return false;
+    std::string dir = entry.path().string();
+
+    auto matchesFormat = [&exts](const std::string& extension) {
+        std::string e = lower(extension);
+        return std::find(exts.begin(), exts.end(), e) != exts.end();
+    };
+
+    if (!exts.empty() && matchesFormat(entry.path().extension().string())) {
+        const char* tmpRoot = host.temp_dir();
+        std::string extractedDir = archive_extract(dir.c_str(), (fs::path(tmpRoot) / "petrichor").string().c_str());
+        if (extractedDir.empty()) {
+            petrichor::plog(PetrichorLogLevel::Error, "mod", "failed to extract '%s'", dir.c_str());
+            return false;
+        }
+        dir = extractedDir;
+    } else if (!entry.is_directory()) {
+        petrichor::plog(PetrichorLogLevel::Warn, "mod", "unexpected file in mods folder: '%s'. file format should be one of: '%s'", dir.c_str(), extsDisplay.c_str());
+        return false;
+    }
+
+    PetrichorManifest m = {};
+    if (!readManifest(dir.c_str(), m)) return false;
+    outDir = dir;
+    outManifest = m;
+    return true;
+}
+
+bool discoverEntry(IPetrichorHost& host, const std::filesystem::directory_entry& entry,
+                    const std::vector<std::string>& exts, const std::string& extsDisplay,
+                    PetrichorManifest& outManifest) {
+    std::string dir;
+    PetrichorManifest m;
+    if (!resolveEntry(host, entry, exts, extsDisplay, dir, m)) return false;
+    if (PETRICHOR_VERSION.valid && m.engineVersion[0]) {
+        auto prVersion = petrichor::SemVer::parse(m.engineVersion);
+        if (prVersion > PETRICHOR_VERSION) {
+            petrichor::plog(PetrichorLogLevel::Error, "mod",
+                "%s requires Petrichor %s, running %s. Skipping...",
+                m.id, m.engineVersion, PETRICHOR_VERSION_STRING);
+            return false;
+        } else if (prVersion.major < PETRICHOR_VERSION.major) {
+            int majorBehind = PETRICHOR_VERSION.major - prVersion.major;
+            petrichor::plog(PetrichorLogLevel::Warn, "mod",
+                "%s was built against Petrichor %s (%d major version(s) behind, running %s). May be unstable.",
+                m.id, m.engineVersion, majorBehind, PETRICHOR_VERSION_STRING);
+        } else if (prVersion.minor < PETRICHOR_VERSION.minor) {
+            int minorBehind = PETRICHOR_VERSION.minor - prVersion.minor;
+            petrichor::plog(PetrichorLogLevel::Warn, "mod",
+                "%s was built against Petrichor %s (%d minor version(s) behind, running %s).",
+                m.id, m.engineVersion, minorBehind, PETRICHOR_VERSION_STRING);
+        }
+    }
+
+    if (petrichor::g_host_version.valid && m.hostVersion[0]) {
+        auto hVersion = petrichor::SemVer::parse(m.hostVersion);
+        if (hVersion > petrichor::g_host_version) {
+            petrichor::plog(PetrichorLogLevel::Error, "mod",
+                "%s requires %s %s, running %s. Skipping...",
+                m.id, host.project_name(), m.hostVersion, host.version());
+            return false;
+        } else if (hVersion.major < petrichor::g_host_version.major) {
+            int majorBehind = petrichor::g_host_version.major - hVersion.major;
+            petrichor::plog(PetrichorLogLevel::Warn, "mod",
+                "%s was built against %s %s (%d major version(s) behind, running %s). May be unstable.",
+                m.id, host.project_name(), m.hostVersion, majorBehind, host.version());
+        } else if (hVersion.minor < petrichor::g_host_version.minor) {
+            int minorBehind = petrichor::g_host_version.minor - hVersion.minor;
+            petrichor::plog(PetrichorLogLevel::Warn, "mod",
+                "%s was built against %s %s (%d minor version(s) behind, running %s).",
+                m.id, host.project_name(), m.hostVersion, minorBehind, host.version());
+        }
+    }
+
+    IBackend* b = backendFor(m.type);
+    if (!b) {
+        petrichor::plog(PetrichorLogLevel::Error, "mod", "%s: no backend for type '%s'", m.id, m.type);
+        return false;
+    }
+    if (!b->load(dir.c_str(), m)) return false;
+    m.dir = dir;
+    outManifest = m;
+    return true;
+}
+
 void loader_run(IPetrichorHost& host, std::vector<std::string> formats) {
     for (auto* b : s_backends)
         if (!b->init(host)) petrichor::plog(PetrichorLogLevel::Error, "mod", "backend '%s' failed to init", b->name());
@@ -161,95 +262,18 @@ void loader_run(IPetrichorHost& host, std::vector<std::string> formats) {
 
     remove_temps(host);
 
-    std::vector<std::string> exts;
-    exts.reserve(formats.size());
-    for (const auto& f : formats) {
-        if (f.empty()) continue;
-        std::string e = lower(f);
-        if (e[0] != '.') e = "." + e;
-        exts.push_back(std::move(e));
-    }
-
+    const std::vector<std::string> exts = normalizeExts(formats);
     std::string extsDisplay;
     for (size_t i = 0; i < exts.size(); ++i) {
         if (i) extsDisplay += ", ";
         extsDisplay += exts[i];
     }
 
-    auto matchesFormat = [&exts](const std::string& extension) {
-        std::string e = lower(extension);
-        return std::find(exts.begin(), exts.end(), e) != exts.end();
-    };
-
     int count = 0;
     for (const auto& entry : fs::directory_iterator(modsDir, ec)) {
         if (ec) break;
-        if (isHiddenEntryName(entry.path())) continue;
-        std::string dir = entry.path().string();
-
-        std::string extractedDir;
-        if (!exts.empty() && matchesFormat(entry.path().extension().string())) {
-            const char* tmpRoot = host.temp_dir();
-            extractedDir = archive_extract(dir.c_str(), (fs::path(tmpRoot) / "petrichor").string().c_str());
-            if (extractedDir.empty()) {
-                petrichor::plog(PetrichorLogLevel::Error, "mod", "failed to extract '%s'", dir.c_str());
-                continue;
-            }
-            dir = extractedDir;
-        } else if (!entry.is_directory()) {
-            petrichor::plog(PetrichorLogLevel::Warn, "mod", "unexpected file in mods folder: '%s'. file format should be one of: '%s'", dir.c_str(), extsDisplay.c_str());
-            continue;
-        }
-
-        PetrichorManifest m = {};
-        if (!readManifest(dir.c_str(), m)) continue;
-        if (PETRICHOR_VERSION.valid && m.engineVersion[0]) {
-            auto prVersion = petrichor::SemVer::parse(m.engineVersion);
-            if (prVersion > PETRICHOR_VERSION) {
-                petrichor::plog(PetrichorLogLevel::Error, "mod",
-                    "%s requires Petrichor %s, running %s. Skipping...",
-                    m.id, m.engineVersion, PETRICHOR_VERSION_STRING);
-                continue;
-            } else if (prVersion.major < PETRICHOR_VERSION.major) {
-                int majorBehind = PETRICHOR_VERSION.major - prVersion.major;
-                petrichor::plog(PetrichorLogLevel::Warn, "mod",
-                    "%s was built against Petrichor %s (%d major version(s) behind, running %s). May be unstable.",
-                    m.id, m.engineVersion, majorBehind, PETRICHOR_VERSION_STRING);
-            } else if (prVersion.minor < PETRICHOR_VERSION.minor) {
-                int minorBehind = PETRICHOR_VERSION.minor - prVersion.minor;
-                petrichor::plog(PetrichorLogLevel::Warn, "mod",
-                    "%s was built against Petrichor %s (%d minor version(s) behind, running %s).",
-                    m.id, m.engineVersion, minorBehind, PETRICHOR_VERSION_STRING);
-            }
-        }
-
-        if (petrichor::g_host_version.valid && m.hostVersion[0]) {
-            auto hVersion = petrichor::SemVer::parse(m.hostVersion);
-            if (hVersion > petrichor::g_host_version) {
-                petrichor::plog(PetrichorLogLevel::Error, "mod",
-                    "%s requires %s %s, running %s. Skipping...",
-                    m.id, host.project_name(), m.hostVersion, host.version());
-                continue;
-            } else if (hVersion.major < petrichor::g_host_version.major) {
-                int majorBehind = petrichor::g_host_version.major - hVersion.major;
-                petrichor::plog(PetrichorLogLevel::Warn, "mod",
-                    "%s was built against %s %s (%d major version(s) behind, running %s). May be unstable.",
-                    m.id, host.project_name(), m.hostVersion, majorBehind, host.version());
-            } else if (hVersion.minor < petrichor::g_host_version.minor) {
-                int minorBehind = petrichor::g_host_version.minor - hVersion.minor;
-                petrichor::plog(PetrichorLogLevel::Warn, "mod",
-                    "%s was built against %s %s (%d minor version(s) behind, running %s).",
-                    m.id, host.project_name(), m.hostVersion, minorBehind, host.version());
-            }
-        }
-
-        IBackend* b = backendFor(m.type);
-        if (!b) {
-            petrichor::plog(PetrichorLogLevel::Error, "mod", "%s: no backend for type '%s'", m.id, m.type);
-            continue;
-        }
-        if (b->load(dir.c_str(), m)) {
-            m.dir = dir;
+        PetrichorManifest m;
+        if (discoverEntry(host, entry, exts, extsDisplay, m)) {
             s_manifests.push_back(m);
             count++;
         }
@@ -294,4 +318,62 @@ std::vector<PetrichorManifest> petrichor_get_mods() {
 
 std::vector<std::string> petrichor_poll_changes() {
     return petrichor::luau_poll_changes();
+}
+
+void petrichor_rescan_dir(IPetrichorHost& host, std::vector<std::string> formats) {
+    const char* modsDir = host.mods_dir();
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    if (!modsDir || !fs::exists(modsDir, ec) || !fs::is_directory(modsDir, ec)) {
+        petrichor::plog(PetrichorLogLevel::Warn, "mod", "no mods directory");
+        return;
+    }
+
+    const std::vector<std::string> exts = normalizeExts(formats);
+    std::string extsDisplay;
+    for (size_t i = 0; i < exts.size(); ++i) {
+        if (i) extsDisplay += ", ";
+        extsDisplay += exts[i];
+    }
+
+    std::vector<std::string> presentIds;
+    std::vector<std::filesystem::directory_entry> newEntries;
+    for (const auto& entry : fs::directory_iterator(modsDir, ec)) {
+        if (ec) break;
+        std::string dir;
+        PetrichorManifest m;
+        if (!resolveEntry(host, entry, exts, extsDisplay, dir, m)) continue;
+        presentIds.push_back(m.id);
+        bool alreadyKnown = std::any_of(s_manifests.begin(), s_manifests.end(),
+            [&](const PetrichorManifest& existing) { return std::strcmp(existing.id, m.id) == 0; });
+        if (!alreadyKnown) newEntries.push_back(entry);
+    }
+
+    int removed = 0;
+    std::vector<PetrichorManifest> next;
+    next.reserve(s_manifests.size());
+    for (const auto& old : s_manifests) {
+        bool stillPresent = std::any_of(presentIds.begin(), presentIds.end(),
+            [&](const std::string& id) { return id == old.id; });
+        if (stillPresent) {
+            next.push_back(old);
+        } else {
+            for (auto* b : s_backends) b->unload(old.id);
+            petrichor::plog(PetrichorLogLevel::Info, "mod", "%s removed from disk, unloaded", old.id);
+            removed++;
+        }
+    }
+
+    int added = 0;
+    for (const auto& entry : newEntries) {
+        PetrichorManifest m;
+        if (discoverEntry(host, entry, exts, extsDisplay, m)) {
+            next.push_back(m);
+            added++;
+        }
+    }
+
+    s_manifests = std::move(next);
+    if (removed || added)
+        petrichor::plog(PetrichorLogLevel::Info, "mod", "rescan: %d added, %d removed", added, removed);
 }
