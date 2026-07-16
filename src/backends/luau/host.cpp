@@ -143,9 +143,25 @@ static bool luau_protected(const char* ctx, Fn&& fn) {
     return false;
 }
 
+thread_local std::string s_active_mod_id;
+thread_local std::string s_active_mod_dir;
+
 struct ModContextGuard {
-    ModContextGuard(const char* dir, const char* id) { s_host->mod_ctx_enter(dir, id); }
-    ~ModContextGuard() { s_host->mod_ctx_exit(); }
+    ModContextGuard(const char* dir, const char* id) {
+        m_old_id = s_active_mod_id;
+        m_old_dir = s_active_mod_dir;
+        s_active_mod_id = id ? id : "";
+        s_active_mod_dir = dir ? dir : "";
+        s_host->mod_ctx_enter(dir, id);
+    }
+    ~ModContextGuard() {
+        s_active_mod_id = m_old_id;
+        s_active_mod_dir = m_old_dir;
+        s_host->mod_ctx_exit();
+    }
+private:
+    std::string m_old_id;
+    std::string m_old_dir;
 };
 
 static void call_mod_method(lua_State* L, sol::table& instance, const char* method,
@@ -257,6 +273,28 @@ int l_require(lua_State* L) {
         lua_pop(L, 1);
     }
     lua_pop(L, 1);
+
+    if (!s_active_mod_id.empty()) {
+        for (const auto& mod : s_mods) {
+            if (mod.id == s_active_mod_id) {
+                if (mod.thread) {
+                    lua_getglobal(mod.thread, "_petrichor_modcache_local");
+                    if (lua_istable(mod.thread, -1)) {
+                        lua_getfield(mod.thread, -1, name);
+                        if (!lua_isnil(mod.thread, -1)) {
+                            lua_xmove(mod.thread, L, 1);
+                            lua_pop(mod.thread, 1);
+                            lua_remove(L, msgh);
+                            return 1;
+                        }
+                        lua_pop(mod.thread, 1);
+                    }
+                    lua_pop(mod.thread, 1);
+                }
+                break;
+            }
+        }
+    }
 
     lua_getfield(L, LUA_REGISTRYINDEX, "_petrichor_modcache");
     if (!lua_istable(L, -1)) {
@@ -605,7 +643,7 @@ void luau_fire_event(const char* event, const char* json_payload) {
         sol::table events = events_result;
         sol::protected_function fire_fn = events["fire"];
 
-        sol::object payload;
+        sol::object payload(s_L, sol::lua_nil);
         if (json_payload && json_payload[0]) {
             auto json_result = require_fn("Petrichor.Json");
             if (!json_result.valid()) {
@@ -621,24 +659,37 @@ void luau_fire_event(const char* event, const char* json_payload) {
                 plog(PetrichorLogLevel::Error, "luau", "fire_event: json decode failed: %s", err.what());
                 return;
             }
-            sol::object payload = decoded;
+            payload = decoded;
+        }
+
+        std::string mod_id;
+        if (const char* colon = strchr(event, ':')) {
+            mod_id.assign(event, colon - event);
+        }
+
+        const LuauModInstance* target_mod = nullptr;
+        if (!mod_id.empty()) {
+            for (const auto& mod : s_mods) {
+                if (mod.id == mod_id) {
+                    target_mod = &mod;
+                    break;
+                }
+            }
+        }
+
+        auto invoke_fire = [&]() {
             auto result = fire_fn(event, payload);
             if (!result.valid()) {
                 sol::error err = result;
                 plog(PetrichorLogLevel::Error, "luau", "fire_event '%s' failed: %s", event, err.what());
             }
-        } else {
-            auto result = fire_fn(event, sol::lua_nil);
-            if (!result.valid()) {
-                sol::error err = result;
-                plog(PetrichorLogLevel::Error, "luau", "fire_event '%s' failed: %s", event, err.what());
-            }
-        }
+        };
 
-        auto result = fire_fn(event, payload);
-        if (!result.valid()) {
-            sol::error err = result;
-            plog(PetrichorLogLevel::Error, "luau", "fire_event '%s' failed: %s", event, err.what());
+        if (target_mod) {
+            ModContextGuard modCtx(target_mod->dir.c_str(), target_mod->id.c_str());
+            invoke_fire();
+        } else {
+            invoke_fire();
         }
     });
 }
