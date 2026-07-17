@@ -33,19 +33,34 @@ static std::string stemOf(const char* archivePath) {
     return fs::path(archivePath).stem().string();
 }
 
+static bool isMetadataOrHidden(const fs::path& path) {
+    const std::string name = path.filename().string();
+    if (name.empty()) return false;
+    if (name[0] == '.') return true;
+    if (name == "__MACOSX") return true; // macOS zip archives
+    return false;
+}
+
 static std::string unwrapSingleDir(const fs::path& dir) {
     std::error_code ec;
     fs::directory_iterator it(dir, ec);
     if (ec) return dir.string();
 
     fs::directory_iterator end;
-    if (it == end) return dir.string();
+    fs::path singleDir;
+    int count = 0;
 
-    fs::path first = it->path();
-    ++it;
-    if (it != end) return dir.string();
+    for (; it != end; ++it) {
+        if (isMetadataOrHidden(it->path())) {
+            continue;
+        }
+        singleDir = it->path();
+        count++;
+    }
 
-    if (fs::is_directory(first, ec) && !ec) return first.string();
+    if (count == 1 && fs::is_directory(singleDir, ec) && !ec) {
+        return singleDir.string();
+    }
     return dir.string();
 }
 
