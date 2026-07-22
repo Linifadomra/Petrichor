@@ -184,7 +184,9 @@ int l_net_udp_open(lua_State* L) {
             auto* s = static_cast<UdpSockUd*>(p);
             if (s->cancel) cancel_and_unblock(s->cancel);
             if (s->fd != INVALID) sock_close(s->fd);
+            s->~UdpSockUd();
         });
+    new (ud) UdpSockUd{};
     ud->fd = fd;
     ud->family = family;
     ud->cancel = std::make_shared<NetCancelState>();
@@ -635,7 +637,9 @@ void tick() {
                     auto* s = static_cast<SockUd*>(p);
                     if (s->cancel) cancel_and_unblock(s->cancel);
                     if (s->fd != INVALID) sock_close(s->fd);
+                    s->~SockUd();
                 });
+            new (ud) SockUd{};
             ud->fd = r.sock;
             ud->cancel = std::make_shared<NetCancelState>();
             ud->cancel->fd.store(r.sock);
