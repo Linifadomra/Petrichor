@@ -37,6 +37,13 @@ struct StorageCtx {
     std::string store_root;
 };
 
+bool isWithin(const fs::path& base, const fs::path& resolved) {
+    const std::string b = base.string();
+    const std::string r = resolved.string();
+    if (r.size() < b.size() || r.compare(0, b.size(), b) != 0) return false;
+    return r.size() == b.size() || r[b.size()] == fs::path::preferred_separator;
+}
+
 StorageCtx* get_ctx(lua_State* L) {
     return (StorageCtx*)lua_touserdata(L, lua_upvalueindex(1));
 }
@@ -48,7 +55,7 @@ int l_read_file(lua_State* L) {
     const fs::path base = (fs::path(ctx->store_root) / ctx->mod_id).lexically_normal();
     const fs::path resolved = (fs::path(ctx->store_root) / ctx->mod_id / name).lexically_normal();
 
-    if (resolved.string().find(base.string()) != 0) {
+    if (!isWithin(base, resolved)) {
         lua_pushnil(L); return 1;
     }
 
@@ -69,7 +76,7 @@ int l_write_file(lua_State* L) {
     const fs::path base = (fs::path(ctx->store_root) / ctx->mod_id).lexically_normal();
     const fs::path resolved = (fs::path(ctx->store_root) / ctx->mod_id / name).lexically_normal();
 
-    if (resolved.string().find(base.string()) != 0) {
+    if (!isWithin(base, resolved)) {
         lua_pushboolean(L, 0); return 1;
     }
 
@@ -88,7 +95,7 @@ int l_file_path(lua_State* L) {
     const fs::path base = (fs::path(ctx->store_root) / ctx->mod_id).lexically_normal();
     const fs::path resolved = (fs::path(ctx->store_root) / ctx->mod_id / name).lexically_normal();
 
-    if (resolved.string().find(base.string()) != 0) {
+    if (!isWithin(base, resolved)) {
         lua_pushnil(L); return 1;
     }
 
@@ -100,8 +107,14 @@ int l_file_path(lua_State* L) {
 int l_read_asset(lua_State* L) {
     const char* rel = luaL_checkstring(L, 1);
     auto* ctx = get_ctx(L);
-    std::string path = ctx->mod_dir + "/assets/" + rel;
-    std::ifstream f(path, std::ios::binary);
+
+    const fs::path base = (fs::path(ctx->mod_dir) / "assets").lexically_normal();
+    const fs::path resolved = (fs::path(ctx->mod_dir) / "assets" / rel).lexically_normal();
+    if (!isWithin(base, resolved)) {
+        lua_pushnil(L); return 1;
+    }
+
+    std::ifstream f(resolved, std::ios::binary);
     if (!f) { lua_pushnil(L); return 1; }
     std::ostringstream ss; ss << f.rdbuf();
     std::string s = ss.str();
@@ -112,19 +125,32 @@ int l_read_asset(lua_State* L) {
 int l_asset_path(lua_State* L) {
     const char* rel = luaL_checkstring(L, 1);
     auto* ctx = get_ctx(L);
-    std::string path = ctx->mod_dir + "/assets/" + rel;
-    lua_pushlstring(L, path.c_str(), path.size());
+
+    const fs::path base = (fs::path(ctx->mod_dir) / "assets").lexically_normal();
+    const fs::path resolved = (fs::path(ctx->mod_dir) / "assets" / rel).lexically_normal();
+    if (!isWithin(base, resolved)) {
+        lua_pushnil(L); return 1;
+    }
+
+    const std::string s = resolved.string();
+    lua_pushlstring(L, s.c_str(), s.size());
     return 1;
 }
 
 int l_list_assets(lua_State* L) {
     const char* rel = luaL_optstring(L, 1, "");
     auto* ctx = get_ctx(L);
-    fs::path dir = fs::path(ctx->mod_dir) / "assets";
+
+    const fs::path base = (fs::path(ctx->mod_dir) / "assets").lexically_normal();
+    fs::path dir = base;
     if (rel && rel[0] != '\0') {
-        dir /= rel;
+        dir = (base / rel).lexically_normal();
     }
+
     lua_newtable(L);
+    if (!isWithin(base, dir)) {
+        return 1;
+    }
     int index = 1;
     std::error_code ec;
     if (!fs::exists(dir, ec) || !fs::is_directory(dir, ec)) {
