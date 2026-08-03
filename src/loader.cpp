@@ -24,6 +24,7 @@
 #include "archive.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <cstring>
 #include <cstdlib>
@@ -66,6 +67,16 @@ void copyJsonString(const nlohmann::json& doc, const char* key, char* out, size_
     const auto s = doc[key].get<std::string>();
     std::strncpy(out, s.c_str(), outSize - 1);
     out[outSize - 1] = '\0';
+}
+
+bool isValidModId(const char* id) {
+    if (!id || !id[0]) return false;
+    for (const char* p = id; *p; ++p) {
+        const unsigned char c = (unsigned char)*p;
+        if (!(std::isalnum(c) || c == '-' || c == '_' || c == '.')) return false;
+    }
+    if (id[0] == '.') return false;
+    return true;
 }
 
 bool readManifest(const char* dir, PetrichorManifest& m) {
@@ -111,7 +122,7 @@ bool readManifest(const char* dir, PetrichorManifest& m) {
     if (doc.contains("conflicts") && doc["conflicts"].is_array())
         for (const auto& c : doc["conflicts"])
             if (c.is_string()) m.conflicts.push_back(c.get<std::string>());    
-    return m.id[0] && m.type[0];
+    return isValidModId(m.id) && m.type[0];
 }
 
 IBackend* backendFor(const char* type) {
