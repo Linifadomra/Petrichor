@@ -444,11 +444,18 @@ bool luau_loadMod(const char* dir, const PetrichorManifest& m, const char* store
     const std::string entryFile = std::string(dir) + "/" + entry;
     FILE* f = fopen(entryFile.c_str(), "rb");
     if (!f) {
+        if (m.type[0] == '\0' || strcmp(m.type, "asset") == 0 || strcmp(m.kind, "asset") == 0) {
+            plog(PetrichorLogLevel::Info, "mod", "loaded asset mod: %s", id);
+            lua_unref(s_L, thread_ref);
+            lua_settop(s_L, base);
+            return true;
+        }
         plog(PetrichorLogLevel::Error, "luau", "entry not found: %s", entryFile.c_str());
         lua_unref(s_L, thread_ref);
         lua_settop(s_L, base);
         return false;
     }
+
 
     fseek(f, 0, SEEK_END);
     const long sz = ftell(f);
