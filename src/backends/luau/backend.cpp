@@ -29,10 +29,14 @@ struct LuauBackend final : IBackend {
     const char* name() const override { return "luau"; }
 
     bool handles(const char* type) const override {
-        return strcmp(type, "luau")   == 0 ||
+        return type[0] == '\0'              ||
+               strcmp(type, "luau")   == 0 ||
                strcmp(type, "lua")    == 0 ||
-               strcmp(type, "script") == 0;
+               strcmp(type, "script") == 0 ||
+               strcmp(type, "asset")  == 0 ||
+               strcmp(type, "mixed")  == 0;
     }
+
 
     bool init(IPetrichorHost& host) override {
         return luau_boot(host);

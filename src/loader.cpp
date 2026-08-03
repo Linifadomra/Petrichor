@@ -105,13 +105,22 @@ bool readManifest(const char* dir, PetrichorManifest& m) {
         else
             std::strncpy(m.kind, "asset", sizeof(m.kind));
     }
+    // fallback: derive from kind if type not specified
+    if (!m.type[0]) {
+        const std::string_view k = m.kind;
+        if (k == "code")
+            std::strncpy(m.type, "luau", sizeof(m.type));
+        else
+            std::strncpy(m.type, "asset", sizeof(m.type));
+    }
 
     m.desc = doc.value("desc", doc.value("description", ""));
 
     if (doc.contains("conflicts") && doc["conflicts"].is_array())
         for (const auto& c : doc["conflicts"])
             if (c.is_string()) m.conflicts.push_back(c.get<std::string>());    
-    return m.id[0] && m.type[0];
+    return m.id[0] != '\0';
+
 }
 
 IBackend* backendFor(const char* type) {
