@@ -168,7 +168,7 @@ int l_net_udp_open(lua_State* L) {
     }
 
     UdpSockUd* ud = (UdpSockUd*)lua_newuserdatadtor(L, sizeof(UdpSockUd),
-        [](void* p) {
+        [](lua_State*, void* p) {
             auto* s = static_cast<UdpSockUd*>(p);
             if (s->cancel) cancel_and_unblock(s->cancel);
             if (s->fd != INVALID) sock_close(s->fd);
@@ -621,7 +621,7 @@ void tick() {
             lua_pushstring(L, r.err.c_str());
         } else if (r.kind == NetKind::Connect) {
             SockUd* ud = (SockUd*)lua_newuserdatadtor(L, sizeof(SockUd),
-                [](void* p) {
+                [](lua_State*, void* p) {
                     auto* s = static_cast<SockUd*>(p);
                     if (s->cancel) cancel_and_unblock(s->cancel);
                     if (s->fd != INVALID) sock_close(s->fd);
@@ -655,7 +655,7 @@ void tick() {
 
 int require_module(lua_State* L, const std::string& mod_id) {
     auto* ctx = (NetCtx*)lua_newuserdatadtor(L, sizeof(NetCtx),
-        [](void* p) { static_cast<NetCtx*>(p)->~NetCtx(); });
+        [](lua_State*, void* p) { static_cast<NetCtx*>(p)->~NetCtx(); });
     new (ctx) NetCtx{ mod_id };
 
     lua_newtable(L);
