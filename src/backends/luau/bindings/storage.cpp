@@ -160,7 +160,7 @@ namespace petrichor::storage {
 
 int require_module(lua_State* L, const std::string& mod_id, const std::string& mod_dir, const std::string& store_root) {
     auto* ctx = (StorageCtx*)lua_newuserdatadtor(L, sizeof(StorageCtx),
-        [](void* p) { static_cast<StorageCtx*>(p)->~StorageCtx(); });
+        [](lua_State*, void* p) { static_cast<StorageCtx*>(p)->~StorageCtx(); });
     new (ctx) StorageCtx{ mod_id, mod_dir, store_root };
 
     lua_newtable(L);
