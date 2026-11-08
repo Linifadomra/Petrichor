@@ -69,4 +69,22 @@ function Mod:off(event, mod_name, fn)
     Event.off(mod_name .. ":" .. event, fn)
 end
 
+-- Inter-mod Export / Import --
+
+local _exports = {}
+
+function Mod:export(name, value)
+    local modName = self.__name
+    if not _exports[modName] then
+        _exports[modName] = {}
+    end
+    _exports[modName][name] = value
+end
+
+function Mod.import(mod_name, name)
+    local t = _exports[mod_name]
+    if not t then return nil end
+    return t[name]
+end
+
 return Mod

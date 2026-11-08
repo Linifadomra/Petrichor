@@ -489,6 +489,15 @@ bool luau_loadMod(const char* dir, const PetrichorManifest& m, const char* store
         lua_settop(s_L, base);
         return false;
     }
+
+    lua_newtable(modL);               // mod environment
+    lua_newtable(modL);               // metatable for environment
+    lua_pushvalue(modL, LUA_GLOBALSINDEX);
+    lua_setfield(modL, -2, "__index");
+    lua_setmetatable(modL, -2);
+    lua_pushvalue(modL, -1);
+    lua_setfield(modL, -2, "_G");     // _G is the mod environment
+    lua_setfenv(modL, -2);
     if (lua_pcall(modL, 0, 1, msgh) != LUA_OK) {
         plog(PetrichorLogLevel::Error, "luau", "runtime error in %s: %s", id, lua_tostring(modL, -1));
         lua_unref(s_L, thread_ref);
