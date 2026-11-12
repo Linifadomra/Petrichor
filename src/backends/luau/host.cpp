@@ -24,6 +24,7 @@
 #include "backends/luau/bindings/async.hpp"
 #include "backends/luau/bindings/net.hpp"
 #include "backends/luau/bindings/storage.hpp"
+#include "backends/luau/bindings/https.hpp"
 
 #include <filesystem>
 #include <lua.h>
@@ -395,6 +396,7 @@ bool luau_boot(IPetrichorHost& host) {
     s_module_registry["Petrichor.Task"]  = l_require_petrichor_async;
     s_module_registry["Petrichor.Timer"] = l_require_timer;
     petrichor::net::boot();
+    petrichor::https::boot();
 
     for (auto* e = s_prelude_libs; e->name; e++)
         run_prelude(s_L, e->name, e->src, e->len);
@@ -472,6 +474,9 @@ bool luau_loadMod(const char* dir, const PetrichorManifest& m, const char* store
 
         petrichor::net::require_module(modL, id);
         lua_setfield(modL, -2, "Petrichor.Net");
+
+        petrichor::https::require_module(modL, id);
+        lua_setfield(modL, -2, "Petrichor.Https");
 
         lua_setglobal(modL, "_petrichor_modcache_local");
     }
@@ -573,6 +578,7 @@ bool luau_unloadMod(const char* id) {
     if (it == s_mods.end()) return false;
 
     petrichor::net::cancel_inflight_for_mod(id);
+    petrichor::https::cancel_inflight_for_mod(s_L, id);
     petrichor::async::cancel_pending_for_thread(it->thread);
 
     lua_State* L = it->thread;
@@ -612,6 +618,15 @@ bool luau_reloadMod(const char* id) {
 void luau_tick(float delta) {
     if (!s_L) return;
     petrichor::async::tick(s_L, delta);
+    petrichor::https::poll(s_L, [](const std::string& mod_id, const std::function<void()>& fn) {
+        for (const auto& mod : s_mods) {
+            if (mod.id != mod_id) continue;
+            ModContextGuard ctx(mod.dir.c_str(), mod.id.c_str());
+            luau_protected(mod.id.c_str(), fn);
+            return;
+        }
+    });
+
     for (auto& mod : s_mods) {
         lua_State* L = mod.thread;
         ModContextGuard modCtx(mod.dir.c_str(), mod.id.c_str());
@@ -717,6 +732,7 @@ void luau_stop() {
     s_mods.clear();
     petrichor::async::stop(s_L);
     petrichor::net::stop();
+    petrichor::https::stop(s_L);
     lua_close(s_L);
     s_L     = nullptr;
     s_host  = nullptr;

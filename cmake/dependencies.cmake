@@ -55,6 +55,13 @@ if(NOT EXISTS ${_sol2_patched_marker})
     file(TOUCH ${_sol2_patched_marker})
 endif()
 
+if(PETRICHOR_HTTPS)
+    find_package(OpenSSL REQUIRED)
+    find_package(Threads REQUIRED)
+    target_link_libraries(petrichor PRIVATE OpenSSL::SSL OpenSSL::Crypto Threads::Threads)
+    target_compile_definitions(petrichor INTERFACE PETRICHOR_HTTPS=1)
+endif()
+
 
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/vendor/sol2)
 

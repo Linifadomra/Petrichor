@@ -8,7 +8,7 @@ project(petrichor
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/dependencies.cmake)
+option(PETRICHOR_HTTPS "Build Petrichor.Https (Requires OpenSSL & Crypto)" ON)
 
 add_library(petrichor STATIC
     src/loader.cpp
@@ -19,7 +19,10 @@ add_library(petrichor STATIC
     src/backends/luau/bindings/async.cpp
     src/backends/luau/bindings/net.cpp
     src/backends/luau/bindings/storage.cpp
+    src/backends/luau/bindings/https.cpp
 )
+
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/dependencies.cmake)
 
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_luau.cmake)
 petrichor_embed_luau(petrichor ${CMAKE_CURRENT_SOURCE_DIR}/src/backends/luau/lib)
@@ -38,6 +41,7 @@ target_include_directories(petrichor
         $<INSTALL_INTERFACE:include>
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${CMAKE_CURRENT_SOURCE_DIR}/vendor
 )
 
 target_link_libraries(petrichor
