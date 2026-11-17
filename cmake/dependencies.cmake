@@ -39,23 +39,12 @@ set(LUA_INCLUDE_DIR
     ${CMAKE_CURRENT_SOURCE_DIR}/vendor/luau/Common/include
     CACHE STRING "" FORCE)
 
-# PATCH: Fix sol2 Luau header resolution
-set(_sol2_patch ${CMAKE_CURRENT_SOURCE_DIR}/cmake/patches/resolve_lua.patch)
-set(_sol2_patched_marker ${CMAKE_CURRENT_SOURCE_DIR}/vendor/sol2/.luau_patch_applied)
-if(NOT EXISTS ${_sol2_patched_marker})
-    find_package(Git REQUIRED)
-    execute_process(
-        COMMAND ${GIT_EXECUTABLE} apply ${_sol2_patch} --directory=vendor/sol2
-        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-        RESULT_VARIABLE _patch_result
-    )
-    if(NOT _patch_result EQUAL 0)
-        message(FATAL_ERROR "Failed to apply sol2 Luau patch")
-    endif()
-    file(TOUCH ${_sol2_patched_marker})
-endif()
-
+# Luau has no lauxlib.h, and a bug in sol2 includes it whenever it is found on the host system
+# An empty shim is used to fix this
+set(_sol2_luau_shim_dir ${CMAKE_BINARY_DIR}/sol2_luau_shim)
+file(WRITE ${_sol2_luau_shim_dir}/lauxlib.h "#pragma once\n")
 
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/vendor/sol2)
 
 target_compile_definitions(sol_luau INTERFACE SOL_LUAU=1 SOL_NO_LUA_HPP=1)
+target_include_directories(sol_luau BEFORE INTERFACE ${_sol2_luau_shim_dir})
